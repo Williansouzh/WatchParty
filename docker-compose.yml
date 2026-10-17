@@ -1,0 +1,20 @@
+services:
+  watchparty:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Troque! É o código que seus amigos usam para criar conta.
+      Auth__InviteCode: "troque-este-codigo"
+    volumes:
+      - ./data:/data
+
+  # Opcional: link HTTPS público sem abrir portas no roteador (necessário para o chat de voz).
+  # Rode `docker compose logs tunnel` para ver o endereço https://....trycloudflare.com
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://watchparty:8080
+    depends_on:
+      - watchparty

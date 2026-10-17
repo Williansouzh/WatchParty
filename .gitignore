@@ -1,0 +1,8 @@
+bin/
+obj/
+.vs/
+.idea/
+*.user
+# Banco e vídeos enviados
+data/
+src/WatchParty.Api/data/
