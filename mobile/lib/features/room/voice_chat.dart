@@ -7,18 +7,37 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../../core/hub_client.dart';
 import '../../core/models.dart';
 
+/// What the room needs from a voice call, whichever transport carries the audio.
+abstract class VoiceSession {
+  /// Connection ids currently speaking; 'self' is the local user.
+  Set<String> get speaking;
+  bool get active;
+  bool get muted;
+  int get connectedPeers;
+
+  Future<void> join();
+  Future<void> leave({bool notifyServer = true});
+  Future<void> setMuted(bool value);
+
+  void onParticipantUpdated(Participant p);
+  void onParticipantLeft(String connectionId);
+  void onSignal(String from, String type, String payload);
+}
+
 /// Voice call as a WebRTC mesh: everyone connects directly to everyone (great for ~6-8 friends).
 /// SignalR only relays the handshake. Compatible with the web client (same message format).
-class VoiceChat {
+class VoiceChat implements VoiceSession {
   VoiceChat({required this.hub, required this.iceServers, required this.onChanged});
 
   final HubClient hub;
   final List<Map<String, dynamic>> iceServers;
   final VoidCallback onChanged;
 
-  /// Connection ids currently speaking; 'self' is the local user.
+  @override
   final speaking = <String>{};
+  @override
   var active = false;
+  @override
   var muted = false;
 
   MediaStream? _local;
@@ -26,8 +45,10 @@ class VoiceChat {
   final _queues = <String, Future<void>>{};
   Timer? _levels;
 
+  @override
   int get connectedPeers => _peers.values.where((p) => p.connected).length;
 
+  @override
   Future<void> join() async {
     _local = await navigator.mediaDevices.getUserMedia({
       'audio': {'echoCancellation': true, 'noiseSuppression': true, 'autoGainControl': true},
@@ -48,6 +69,7 @@ class VoiceChat {
     onChanged();
   }
 
+  @override
   Future<void> leave({bool notifyServer = true}) async {
     if (!active) return;
     active = false;
@@ -65,6 +87,7 @@ class VoiceChat {
     onChanged();
   }
 
+  @override
   Future<void> setMuted(bool value) async {
     muted = value;
     for (final track in _local?.getAudioTracks() ?? <MediaStreamTrack>[]) {
@@ -76,12 +99,15 @@ class VoiceChat {
 
   // ----- events forwarded by the room -----
 
+  @override
   void onParticipantUpdated(Participant p) {
     if (!p.inVoice) _enqueue(p.connectionId, () => _closePeer(p.connectionId));
   }
 
+  @override
   void onParticipantLeft(String connectionId) => _enqueue(connectionId, () => _closePeer(connectionId));
 
+  @override
   void onSignal(String from, String type, String payload) {
     if (!active) return;
     _enqueue(from, () => _handleSignal(from, type, jsonDecode(payload) as Map<String, dynamic>));

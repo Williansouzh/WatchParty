@@ -113,13 +113,19 @@ class Api {
         },
       );
 
-  Future<List<Json>> iceServers() => _call(
+  Future<RtcConfig> rtcConfig() => _call(
         () => _dio.get('/api/config'),
-        (d) => (asJson(d)['iceServers'] as List).map((e) {
-          final server = asJson(e);
-          server.removeWhere((_, value) => value == null);
-          return server;
-        }).toList(),
+        (d) {
+          final j = asJson(d);
+          return RtcConfig(
+            iceServers: (j['iceServers'] as List).map((e) {
+              final server = asJson(e);
+              server.removeWhere((_, value) => value == null);
+              return server;
+            }).toList(),
+            liveKitUrl: j['voice'] == 'livekit' ? j['liveKitUrl'] as String? : null,
+          );
+        },
       );
 
   // ---------- Videos ----------
@@ -222,4 +228,12 @@ class Api {
       );
 
   Future<void> deleteRoom(String code) => _call(() => _dio.delete('/api/rooms/$code'), (_) {});
+}
+
+/// How voice calls connect: WebRTC mesh with these ICE servers, or a LiveKit server when [liveKitUrl] is set.
+class RtcConfig {
+  const RtcConfig({this.iceServers = const [], this.liveKitUrl});
+
+  final List<Json> iceServers;
+  final String? liveKitUrl;
 }

@@ -6,6 +6,7 @@ import {
 } from '../ui.js';
 import { PlaybackSync } from '../room/sync.js';
 import { VoiceChat } from '../room/voice.js';
+import { LiveKitVoiceChat } from '../room/voice-livekit.js';
 
 const ACTION_TEXT = { Play: 'deu play', Pause: 'pausou', Seek: 'pulou para' };
 const REACTIONS = ['😂', '😍', '🔥', '😱', '👏', '😭', '👍', '🍿'];
@@ -590,13 +591,16 @@ export async function render(root, ctx) {
 
   async function joinVoice() {
     if (voice?.active) return;
-    voice = new VoiceChat(hub, config.iceServers, {
+    const callbacks = {
       onSpeaking: (id, isSpeaking) => {
         const connectionId = id === 'self' ? myConnectionId : id;
         if (isSpeaking) speaking.add(connectionId); else speaking.delete(connectionId);
         document.querySelectorAll(`[data-conn="${CSS.escape(connectionId)}"]`).forEach((a) => a.classList.toggle('speaking', isSpeaking));
       },
-    });
+    };
+    voice = config.voice === 'livekit' && config.liveKitUrl
+      ? new LiveKitVoiceChat(hub, config.liveKitUrl, callbacks)
+      : new VoiceChat(hub, config.iceServers, callbacks);
     try {
       await voice.join();
       updateSelf({ inVoice: true, isMuted: false });

@@ -47,8 +47,10 @@ public static class RoomEndpoints
             return result.ToHttp();
         });
 
-        app.MapGet("/api/config", (IOptions<WebRtcOptions> webRtc) => Results.Ok(new
+        app.MapGet("/api/config", (IOptions<WebRtcOptions> webRtc, IOptions<VoiceOptions> voice) => Results.Ok(new
         {
+            voice = voice.Value.UseLiveKit ? "livekit" : "mesh",
+            liveKitUrl = voice.Value.UseLiveKit ? voice.Value.LiveKit.Url : null,
             iceServers = webRtc.Value.IceServers.Select(s => new { urls = s.Urls, username = s.Username, credential = s.Credential })
         })).RequireAuthorization();
 

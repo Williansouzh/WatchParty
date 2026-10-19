@@ -10,6 +10,7 @@ import '../../core/hub_client.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
 import 'voice_chat.dart';
+import 'voice_livekit.dart';
 
 enum RoomStatus { connecting, connected, reconnecting, failed, deleted }
 
@@ -74,7 +75,7 @@ class RoomController extends ChangeNotifier {
   String? videoError;
   var needsTap = false; // autoplay blocked (web)
   SubtitleInfo? subtitle;
-  VoiceChat? voice;
+  VoiceSession? voice;
 
   final _toasts = StreamController<String>.broadcast();
   final _reactions = StreamController<Reaction>.broadcast();
@@ -91,7 +92,7 @@ class RoomController extends ChangeNotifier {
   Timer? _bufferingTimer;
   var _bufferingReported = false;
   var _endReported = false;
-  List<Map<String, dynamic>> _iceServers = const [];
+  RtcConfig _rtc = const RtcConfig();
   var _disposed = false;
 
   int get watchingCount => participants.values.map((p) => p.userId).toSet().length;
@@ -131,7 +132,7 @@ class RoomController extends ChangeNotifier {
     };
 
     try {
-      _iceServers = await api.iceServers().catchError((_) => <Map<String, dynamic>>[]);
+      _rtc = await api.rtcConfig().catchError((_) => const RtcConfig());
       await hub.start();
       await _join();
       status = RoomStatus.connected;
@@ -634,7 +635,10 @@ class RoomController extends ChangeNotifier {
 
   Future<void> joinVoice() async {
     if (voice?.active ?? false) return;
-    final v = VoiceChat(hub: hub, iceServers: _iceServers, onChanged: _notify);
+    final liveKitUrl = _rtc.liveKitUrl;
+    final v = liveKitUrl != null
+        ? LiveKitVoiceChat(hub: hub, url: liveKitUrl, onChanged: _notify)
+        : VoiceChat(hub: hub, iceServers: _rtc.iceServers, onChanged: _notify);
     voice = v;
     try {
       await v.join();

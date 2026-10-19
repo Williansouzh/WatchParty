@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Options;
+using WatchParty.Api.Common;
 using WatchParty.Api.Extensions;
 using WatchParty.Application.Abstractions.Messaging;
 using WatchParty.Application.Abstractions.Services;
@@ -14,7 +16,7 @@ namespace WatchParty.Api.Hubs;
 /// WebRTC signaling for voice. The video itself never goes through here; players stream it over HTTP.
 /// </summary>
 [Authorize]
-public sealed class RoomHub(ISender sender, IRoomPresence presence, TimeProvider time) : Hub<IRoomClient>
+public sealed class RoomHub(ISender sender, IRoomPresence presence, TimeProvider time, IOptions<VoiceOptions> voiceOptions) : Hub<IRoomClient>
 {
     public const string LobbyGroup = "lobby";
     private const int MaxSignalPayloadLength = 64 * 1024;
@@ -227,6 +229,19 @@ public sealed class RoomHub(ISender sender, IRoomPresence presence, TimeProvider
     }
 
     /// <summary>Relays WebRTC offers/answers/ICE candidates between two people in the same room.</summary>
+    /// <summary>
+    /// LiveKit mode only: a token that lets this connection join the room's LiveKit call. The LiveKit
+    /// identity is the SignalR connection id, so speaking indicators map straight onto participants.
+    /// </summary>
+    public string GetVoiceToken()
+    {
+        var code = RequireRoom();
+        var voice = voiceOptions.Value;
+        if (!voice.UseLiveKit) throw new HubException("O servidor não está configurado para usar LiveKit.");
+
+        return LiveKitToken.Create(voice.LiveKit, $"watchparty-{code}", Context.ConnectionId, DisplayName, time.GetUtcNow());
+    }
+
     public async Task SendVoiceSignal(string targetConnectionId, string type, string payload)
     {
         var code = RequireRoom();

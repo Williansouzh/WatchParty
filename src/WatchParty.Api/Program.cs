@@ -20,6 +20,7 @@ builder.Services
     .AddInfrastructure(builder.Configuration);
 
 builder.Services.Configure<WebRtcOptions>(builder.Configuration.GetSection(WebRtcOptions.SectionName));
+builder.Services.Configure<VoiceOptions>(builder.Configuration.GetSection(VoiceOptions.SectionName));
 builder.Services.Configure<MobileAppOptions>(builder.Configuration.GetSection(MobileAppOptions.SectionName));
 
 // Structured logs (one JSON object per line) for when the server runs somewhere with a log collector.

@@ -73,6 +73,12 @@ try {
   const pcB = await b.evaluate(() => window.__pcs.map((pc) => pc.connectionState));
   ok(pcA.includes('connected') && pcB.includes('connected'), `voice connected A=${pcA} B=${pcB}`);
   ok((await a.textContent('.voice-bar .sub')).includes('2 na call'), 'voice bar counts both people');
+  if (await a.evaluate(() => fetch('/api/config').then((r) => r.json()).then((c) => c.voice === 'livekit'))) {
+    // LiveKit mode: audio goes through the LiveKit server and each side gets the other's track.
+    await a.waitForSelector('audio[data-voice=livekit]', { state: 'attached', timeout: 15000 });
+    await b.waitForSelector('audio[data-voice=livekit]', { state: 'attached', timeout: 15000 });
+    ok(true, 'LiveKit audio tracks received on both sides');
+  }
   await b.click('[data-mute]');
   await a.waitForFunction(() => document.querySelector('[data-people]').textContent.includes('mutado'), null, { timeout: 5000 });
   ok(true, 'mute shown to others');

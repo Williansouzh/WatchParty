@@ -123,6 +123,10 @@ try {
   const pf = await f.evaluate(() => window.__pcs.map((p) => p.connectionState));
   const pw = await w.evaluate(() => window.__pcs.map((p) => p.connectionState));
   ok(pf.includes('connected') && pw.includes('connected'), `voice app <-> site: F=${pf} W=${pw}`);
+  if (await w.evaluate(() => fetch('/api/config').then((r) => r.json()).then((c) => c.voice === 'livekit'))) {
+    await w.waitForSelector('audio[data-voice=livekit]', { state: 'attached', timeout: 15000 })
+      .then(() => ok(true, 'site hears the app through LiveKit')).catch(() => ok(false, 'site hears the app through LiveKit'));
+  }
   await enableSemantics(f);
   await tapAt(f, button(f, 'Mutar'));
   await w.waitForFunction(() => document.querySelector('[data-people]').textContent.includes('mutado'), null, { timeout: 5000 })
