@@ -77,8 +77,9 @@ internal sealed class GetSubtitleFileQueryHandler(IAppDbContext db, IVideoStorag
             .Select(s => s.FileKey)
             .FirstOrDefaultAsync(cancellationToken);
 
-        return key is null || !storage.Exists(key)
-            ? SubtitleErrors.NotFound
-            : new MediaFileDto(storage.GetPhysicalPath(key), "text/vtt; charset=utf-8");
+        // Subtitles stay on the server (tiny, and browsers need same-origin for <track>).
+        return key is not null && storage.Locate(key) is { Path: { } path }
+            ? new MediaFileDto(path, "text/vtt; charset=utf-8")
+            : SubtitleErrors.NotFound;
     }
 }

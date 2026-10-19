@@ -26,7 +26,12 @@ public static class DependencyInjection
         services.AddSingleton<IVideoProgressTracker, VideoProgressTracker>();
 
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
-        services.AddSingleton<IVideoStorage, LocalVideoStorage>();
+        services.Configure<S3Options>(configuration.GetSection(S3Options.SectionName));
+        services.AddSingleton<LocalVideoStorage>();
+        if (configuration.GetValue<bool>($"{S3Options.SectionName}:Enabled"))
+            services.AddSingleton<IVideoStorage, S3VideoStorage>();
+        else
+            services.AddSingleton<IVideoStorage>(sp => sp.GetRequiredService<LocalVideoStorage>());
 
         services.Configure<FfmpegOptions>(configuration.GetSection(FfmpegOptions.SectionName));
         services.AddScoped<IVideoProcessor, FfmpegVideoProcessor>();

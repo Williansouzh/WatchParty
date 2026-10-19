@@ -57,21 +57,21 @@ public static class VideoEndpoints
         // Range requests let the player seek anywhere without downloading the whole movie.
         group.MapGet("/{id:guid}/stream", async (Guid id, ISender sender, CancellationToken ct) =>
             (await sender.Send(new GetVideoMediaQuery(id, MediaKind.Video), ct))
-                .ToHttp(file => Results.File(file.PhysicalPath, file.ContentType, enableRangeProcessing: true)));
+                .ToHttp(file => Send(file, range: true)));
 
         // Adaptive streaming: master.m3u8 and the files it references (relative paths).
         group.MapGet("/{id:guid}/hls/{**path}", async (Guid id, string path, ISender sender, HttpContext http, CancellationToken ct) =>
             (await sender.Send(new GetHlsFileQuery(id, path), ct)).ToHttp(file =>
             {
                 http.Response.Headers.CacheControl = path.EndsWith(".ts", StringComparison.Ordinal) ? "private, max-age=86400" : "no-cache";
-                return Results.File(file.PhysicalPath, file.ContentType, enableRangeProcessing: true);
+                return Send(file, range: true);
             }));
 
         group.MapPost("/{id:guid}/subtitles", UploadSubtitleAsync).DisableAntiforgery();
 
         group.MapGet("/{id:guid}/subtitles/{subtitleId:guid}", async (Guid id, Guid subtitleId, ISender sender, CancellationToken ct) =>
             (await sender.Send(new GetSubtitleFileQuery(id, subtitleId), ct))
-                .ToHttp(file => Results.File(file.PhysicalPath, file.ContentType)));
+                .ToHttp(file => Send(file)));
 
         group.MapDelete("/{id:guid}/subtitles/{subtitleId:guid}", async (Guid id, Guid subtitleId, ClaimsPrincipal user, ISender sender, CancellationToken ct) =>
             (await sender.Send(new DeleteSubtitleCommand(id, subtitleId, user.GetUserId()), ct)).ToHttp());
@@ -80,11 +80,19 @@ public static class VideoEndpoints
             (await sender.Send(new GetVideoMediaQuery(id, MediaKind.Thumbnail), ct)).ToHttp(file =>
             {
                 http.Response.Headers.CacheControl = "private, max-age=86400";
-                return Results.File(file.PhysicalPath, file.ContentType);
+                return Send(file);
             }));
 
         return app;
     }
+
+    /// <summary>A file from disk, a redirect to remote storage (S3/R2 signed URL), or generated text.</summary>
+    private static IResult Send(MediaFileDto file, bool range = false) => file switch
+    {
+        { Content: { } content } => Results.Text(content, file.ContentType),
+        { RedirectUrl: { } url } => Results.Redirect(url),
+        _ => Results.File(file.PhysicalPath!, file.ContentType, enableRangeProcessing: range)
+    };
 
     /// <summary>
     /// Streams the multipart body straight to storage instead of buffering it, so multi-GB movies are fine.

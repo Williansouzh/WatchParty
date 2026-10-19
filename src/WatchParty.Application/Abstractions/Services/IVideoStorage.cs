@@ -19,6 +19,28 @@ public interface IVideoStorage
 
     /// <summary>Free space on the disk that holds the media, when it can be determined.</summary>
     long? GetAvailableFreeBytes();
+
+    /// <summary>
+    /// Where a finished file can be read from: a local path, or a short-lived URL when it was moved to
+    /// remote storage (S3/R2). Null when it doesn't exist.
+    /// </summary>
+    MediaLocation? Locate(string key);
+
+    /// <summary>Same as <see cref="Locate"/> for a file inside a folder key (HLS segments).</summary>
+    MediaLocation? LocateInFolder(string folderKey, string relativePath);
+
+    /// <summary>Moves a finished file to remote storage. Local-only storage does nothing.</summary>
+    Task OffloadAsync(string key, string contentType, CancellationToken cancellationToken);
+
+    /// <summary>Moves the files of a folder that match <paramref name="include"/> to remote storage.</summary>
+    Task OffloadFolderAsync(string folderKey, Func<string, bool> include, CancellationToken cancellationToken);
+}
+
+/// <summary>Exactly one of <see cref="Path"/> (local file) or <see cref="Url"/> (remote) is set.</summary>
+public sealed record MediaLocation(string? Path, string? Url)
+{
+    public static MediaLocation Local(string path) => new(path, null);
+    public static MediaLocation Remote(string url) => new(null, url);
 }
 
 public sealed record StoredFile(string Key, long SizeBytes);

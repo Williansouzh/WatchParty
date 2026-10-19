@@ -29,8 +29,17 @@ internal sealed class ProcessVideoCommandHandler(
 
         if (video.Status == VideoStatus.Processing && !await ConvertAsync(video, cancellationToken)) return Result.Success();
 
+        // HLS is built from the MP4 on disk, so finished files only go to remote storage afterwards.
+        // Until then they are served from the server's disk.
         if (video.Status == VideoStatus.Ready && video.HlsKey is null && processor.HlsEnabled)
             await BuildHlsAsync(video, cancellationToken);
+
+        if (video.Status == VideoStatus.Ready)
+        {
+            await OffloadAsync(() => storage.OffloadAsync(video.FileKey, video.ContentType, cancellationToken));
+            if (video.ThumbnailKey is not null)
+                await OffloadAsync(() => storage.OffloadAsync(video.ThumbnailKey, "image/jpeg", cancellationToken));
+        }
 
         return Result.Success();
     }
@@ -63,8 +72,23 @@ internal sealed class ProcessVideoCommandHandler(
         }
     }
 
+    /// <summary>Moving files to remote storage is best effort: if it fails they are simply served from disk.</summary>
+    private async Task OffloadAsync(Func<Task> offload)
+    {
+        try
+        {
+            await offload();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Could not move a file to remote storage; it stays on the server");
+        }
+    }
+
     private async Task BuildHlsAsync(Video video, CancellationToken cancellationToken)
     {
+        // Already moved to remote storage (e.g. HLS was enabled later): not worth downloading it back.
+        if (storage.Locate(video.FileKey) is not { Path: not null }) return;
         try
         {
             var hlsKey = await processor.GenerateHlsAsync(video.FileKey, cancellationToken);
@@ -78,6 +102,7 @@ internal sealed class ProcessVideoCommandHandler(
             }
             video.SetHls(hlsKey);
             await db.SaveChangesAsync(cancellationToken);
+            await OffloadAsync(() => storage.OffloadFolderAsync(hlsKey, f => !f.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase), cancellationToken));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

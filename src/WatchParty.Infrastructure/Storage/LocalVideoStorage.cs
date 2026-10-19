@@ -108,6 +108,19 @@ internal sealed partial class LocalVideoStorage : IVideoStorage
         }
     }
 
+    public MediaLocation? Locate(string key)
+    {
+        var path = GetPhysicalPath(key);
+        return File.Exists(path) ? MediaLocation.Local(path) : null;
+    }
+
+    public MediaLocation? LocateInFolder(string folderKey, string relativePath) =>
+        ResolveFolderFile(folderKey, relativePath) is { } path ? MediaLocation.Local(path) : null;
+
+    public Task OffloadAsync(string key, string contentType, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task OffloadFolderAsync(string folderKey, Func<string, bool> include, CancellationToken cancellationToken) => Task.CompletedTask;
+
     [GeneratedRegex("^[a-z]+-[0-9a-f]{32}$")]
     private static partial Regex FolderKeyPattern();
 }
