@@ -22,7 +22,11 @@ public sealed record RoomDto(
     VideoDto? CurrentVideo,
     PlaybackStateDto Playback,
     int OnlineCount,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    bool HostOnlyControl,
+    IReadOnlyList<QueueItemDto> Queue);
+
+public sealed record QueueItemDto(Guid ItemId, VideoDto Video, Guid AddedById, string AddedByName);
 
 public sealed record RoomSummaryDto(
     string Code,
@@ -34,4 +38,4 @@ public sealed record RoomSummaryDto(
     int OnlineCount,
     DateTime CreatedAt);
 
-public sealed record RoomVideoChangedDto(VideoDto Video, PlaybackStateDto Playback);
+public sealed record RoomVideoChangedDto(VideoDto Video, PlaybackStateDto Playback, IReadOnlyList<QueueItemDto> Queue);

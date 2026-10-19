@@ -3,6 +3,7 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.BearerToken;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
 using WatchParty.Api.Common;
@@ -19,6 +20,14 @@ builder.Services
     .AddInfrastructure(builder.Configuration);
 
 builder.Services.Configure<WebRtcOptions>(builder.Configuration.GetSection(WebRtcOptions.SectionName));
+builder.Services.Configure<MobileAppOptions>(builder.Configuration.GetSection(MobileAppOptions.SectionName));
+
+// Structured logs (one JSON object per line) for when the server runs somewhere with a log collector.
+if (builder.Configuration.GetValue<bool>("Logging:Json"))
+{
+    builder.Logging.ClearProviders();
+    builder.Logging.AddJsonConsole(o => o.IncludeScopes = true);
+}
 
 // Browser uses a cookie; the mobile app sends "Authorization: Bearer <token>"
 // (or ?access_token= on the SignalR websocket, where headers can't be set).
@@ -65,6 +74,12 @@ builder.Services.AddAuthentication(AuthScheme)
         };
     });
 builder.Services.AddAuthorization();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<SecurityStampValidator>();
+
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<AppDbContext>("database")
+    .AddCheck<DiskSpaceHealthCheck>("disk");
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -99,12 +114,15 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseRateLimiter();
 app.UseAuthentication();
+app.UseSecurityStampValidation();
 app.UseAuthorization();
 
 app.MapAuthEndpoints();
 app.MapVideoEndpoints();
 app.MapPlaylistEndpoints();
 app.MapRoomEndpoints();
+app.MapAppEndpoints();
+app.MapHealthChecks("/health", new HealthCheckOptions { ResponseWriter = HealthResponse.WriteAsync }).AllowAnonymous();
 app.MapHub<RoomHub>("/hubs/room");
 
 app.Run();

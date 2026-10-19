@@ -18,6 +18,9 @@ public sealed class Video : Entity
     public string FileKey { get; private set; } = null!;
     public string ContentType { get; private set; } = null!;
     public string? ThumbnailKey { get; private set; }
+
+    /// <summary>Storage folder with the adaptive (HLS) renditions, once generated.</summary>
+    public string? HlsKey { get; private set; }
     public long SizeBytes { get; private set; }
     public double? DurationSeconds { get; private set; }
     public VideoStatus Status { get; private set; }
@@ -68,6 +71,8 @@ public sealed class Video : Entity
         Status = VideoStatus.Ready;
         FailureReason = null;
     }
+
+    public void SetHls(string? hlsKey) => HlsKey = hlsKey;
 
     public void MarkFailed(string reason)
     {

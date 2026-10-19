@@ -26,13 +26,15 @@ internal sealed class SendChatMessageCommandHandler(IAppDbContext db, TimeProvid
     public async Task<Result<ChatMessageDto>> Handle(SendChatMessageCommand command, CancellationToken cancellationToken)
     {
         var code = RoomCode.Normalize(command.Code);
-        var roomId = await db.Rooms.Where(r => r.Code == code).Select(r => (Guid?)r.Id).FirstOrDefaultAsync(cancellationToken);
-        if (roomId is null) return RoomErrors.NotFound;
+        var room = await db.Rooms.FirstOrDefaultAsync(r => r.Code == code, cancellationToken);
+        if (room is null) return RoomErrors.NotFound;
 
         var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == command.UserId, cancellationToken);
         if (user is null) return UserErrors.NotFound;
 
-        var message = ChatMessage.Create(roomId.Value, user.Id, command.Content, time.GetUtcNow().UtcDateTime);
+        var now = time.GetUtcNow().UtcDateTime;
+        var message = ChatMessage.Create(room.Id, user.Id, command.Content, now);
+        room.Touch(now);
         db.ChatMessages.Add(message);
         await db.SaveChangesAsync(cancellationToken);
 

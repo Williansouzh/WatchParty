@@ -26,7 +26,7 @@ public class AuthTests
         var wrong = await app.Send(new LoginCommand("will", "outra-senha"));
 
         Assert.True(ok.IsSuccess);
-        Assert.Equal("will", ok.Value.UserName);
+        Assert.Equal("will", ok.Value.User.UserName);
         Assert.Equal(UserErrors.InvalidCredentials, wrong.Error);
     }
 

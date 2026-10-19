@@ -30,6 +30,8 @@ public static class DependencyInjection
         services.AddValidatorsFromAssembly(assembly, includeInternalTypes: true);
 
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
+        services.Configure<StorageLimitsOptions>(configuration.GetSection(StorageLimitsOptions.SectionName));
+        services.Configure<MaintenanceOptions>(configuration.GetSection(MaintenanceOptions.SectionName));
 
         return services;
     }

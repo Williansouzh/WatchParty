@@ -6,7 +6,12 @@ internal static class ProcessRunner
 {
     public sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError);
 
-    public static async Task<ProcessResult> RunAsync(string fileName, IEnumerable<string> arguments, CancellationToken cancellationToken)
+    /// <param name="onOutputLine">When set, standard output is streamed line by line instead of collected.</param>
+    public static async Task<ProcessResult> RunAsync(
+        string fileName,
+        IEnumerable<string> arguments,
+        CancellationToken cancellationToken,
+        Action<string>? onOutputLine = null)
     {
         var startInfo = new ProcessStartInfo(fileName)
         {
@@ -20,7 +25,9 @@ internal static class ProcessRunner
         using var process = new Process { StartInfo = startInfo };
         process.Start();
 
-        var stdout = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var stdout = onOutputLine is null
+            ? process.StandardOutput.ReadToEndAsync(CancellationToken.None)
+            : StreamLinesAsync(process.StandardOutput, onOutputLine);
         var stderr = process.StandardError.ReadToEndAsync(CancellationToken.None);
 
         try
@@ -34,5 +41,11 @@ internal static class ProcessRunner
         }
 
         return new ProcessResult(process.ExitCode, await stdout, await stderr);
+    }
+
+    private static async Task<string> StreamLinesAsync(StreamReader reader, Action<string> onLine)
+    {
+        while (await reader.ReadLineAsync() is { } line) onLine(line);
+        return string.Empty;
     }
 }

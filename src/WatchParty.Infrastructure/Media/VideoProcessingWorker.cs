@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using WatchParty.Application.Abstractions.Messaging;
+using WatchParty.Application.Abstractions.Services;
 using WatchParty.Application.Features.Videos;
 using WatchParty.Domain.Videos;
 using WatchParty.Infrastructure.Persistence;
@@ -38,13 +39,18 @@ internal sealed class VideoProcessingWorker(
         }
     }
 
-    /// <summary>Videos left in "Processing" by a restart are picked up again.</summary>
+    /// <summary>Videos left in "Processing" (or still missing their HLS version) by a restart are picked up again.</summary>
     private async Task RequeueInterruptedAsync(CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var hlsEnabled = scope.ServiceProvider.GetRequiredService<IVideoProcessor>().HlsEnabled;
 
-        var pending = await db.Videos.Where(v => v.Status == VideoStatus.Processing).Select(v => v.Id).ToListAsync(cancellationToken);
+        var pending = await db.Videos
+            .Where(v => v.Status == VideoStatus.Processing || (hlsEnabled && v.Status == VideoStatus.Ready && v.HlsKey == null))
+            .OrderBy(v => v.Status) // Processing first
+            .Select(v => v.Id)
+            .ToListAsync(cancellationToken);
         foreach (var id in pending) queue.Enqueue(id);
     }
 }

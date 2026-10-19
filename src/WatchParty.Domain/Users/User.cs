@@ -19,6 +19,9 @@ public sealed class User : Entity
     public string AvatarColor { get; private set; } = null!;
     public DateTime CreatedAt { get; private set; }
 
+    /// <summary>Changes whenever existing logins must stop working (password change, "sign out everywhere").</summary>
+    public string SecurityStamp { get; private set; } = NewStamp();
+
     public static User Create(string userName, string displayName, string passwordHash, DateTime now)
     {
         if (string.IsNullOrWhiteSpace(userName)) throw new DomainException("O usuário é obrigatório.");
@@ -33,6 +36,16 @@ public sealed class User : Entity
             CreatedAt = now
         };
     }
+
+    public void ChangePassword(string passwordHash)
+    {
+        PasswordHash = passwordHash;
+        RotateSecurityStamp();
+    }
+
+    public void RotateSecurityStamp() => SecurityStamp = NewStamp();
+
+    private static string NewStamp() => Guid.NewGuid().ToString("N");
 
     public static string NormalizeUserName(string userName) => userName.Trim().ToLowerInvariant();
 }

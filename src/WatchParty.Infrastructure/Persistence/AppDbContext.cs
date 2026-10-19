@@ -13,10 +13,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<User> Users => Set<User>();
     public DbSet<Video> Videos => Set<Video>();
     public DbSet<Favorite> Favorites => Set<Favorite>();
+    public DbSet<Subtitle> Subtitles => Set<Subtitle>();
     public DbSet<Playlist> Playlists => Set<Playlist>();
     public DbSet<PlaylistItem> PlaylistItems => Set<PlaylistItem>();
     public DbSet<Room> Rooms => Set<Room>();
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+    public DbSet<RoomQueueItem> RoomQueue => Set<RoomQueueItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

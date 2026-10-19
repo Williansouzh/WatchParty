@@ -13,10 +13,13 @@ public static class AuthEndpoints
 {
     public sealed record RegisterRequest(string UserName, string DisplayName, string Password, string InviteCode);
     public sealed record LoginRequest(string UserName, string Password);
+    public sealed record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
     public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/auth").WithTags("Auth");
+
+        // ----- Browser: cookie -----
 
         group.MapPost("/register", async (RegisterRequest request, ISender sender, HttpContext http, CancellationToken ct) =>
         {
@@ -24,8 +27,8 @@ public static class AuthEndpoints
                 new RegisterUserCommand(request.UserName, request.DisplayName, request.Password, request.InviteCode), ct);
             if (result.IsFailure) return result.Error.ToProblem();
 
-            await SignInAsync(http, result.Value);
-            return Results.Ok(result.Value);
+            await SignInWithCookieAsync(http, result.Value);
+            return Results.Ok(result.Value.User);
         }).RequireRateLimiting(RateLimits.Auth);
 
         group.MapPost("/login", async (LoginRequest request, ISender sender, HttpContext http, CancellationToken ct) =>
@@ -33,11 +36,12 @@ public static class AuthEndpoints
             var result = await sender.Send(new LoginCommand(request.UserName, request.Password), ct);
             if (result.IsFailure) return result.Error.ToProblem();
 
-            await SignInAsync(http, result.Value);
-            return Results.Ok(result.Value);
+            await SignInWithCookieAsync(http, result.Value);
+            return Results.Ok(result.Value.User);
         }).RequireRateLimiting(RateLimits.Auth);
 
-        // Mobile app: same credentials, but answers with a bearer token instead of setting a cookie.
+        // ----- Mobile app: same credentials, answers with a bearer token -----
+
         group.MapPost("/token/register", async (RegisterRequest request, ISender sender, CancellationToken ct) =>
         {
             var result = await sender.Send(
@@ -51,11 +55,38 @@ public static class AuthEndpoints
             return result.IsSuccess ? IssueToken(result.Value) : result.Error.ToProblem();
         }).RequireRateLimiting(RateLimits.Auth);
 
+        // ----- Session management -----
+
         group.MapPost("/logout", async (HttpContext http) =>
         {
             await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return Results.NoContent();
         });
+
+        // Ends every login of this account on every device (cookies and tokens).
+        group.MapPost("/logout-everywhere", async (ClaimsPrincipal user, ISender sender, SecurityStampValidator stamps, HttpContext http, CancellationToken ct) =>
+        {
+            var result = await sender.Send(new SignOutEverywhereCommand(user.GetUserId()), ct);
+            if (result.IsFailure) return result.Error.ToProblem();
+
+            stamps.Invalidate(user.GetUserId());
+            await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return Results.NoContent();
+        }).RequireAuthorization();
+
+        // Other devices are signed out; this one gets a fresh login (cookie or token, like the request).
+        group.MapPost("/password", async (ChangePasswordRequest request, ClaimsPrincipal user, ISender sender,
+            SecurityStampValidator stamps, HttpContext http, CancellationToken ct) =>
+        {
+            var result = await sender.Send(new ChangePasswordCommand(user.GetUserId(), request.CurrentPassword, request.NewPassword), ct);
+            if (result.IsFailure) return result.Error.ToProblem();
+
+            stamps.Invalidate(user.GetUserId());
+            if (IsBearerRequest(http)) return IssueToken(result.Value);
+
+            await SignInWithCookieAsync(http, result.Value);
+            return Results.Ok(result.Value.User);
+        }).RequireAuthorization().RequireRateLimiting(RateLimits.Auth);
 
         group.MapGet("/me", async (ClaimsPrincipal user, ISender sender, HttpContext http, CancellationToken ct) =>
         {
@@ -70,22 +101,27 @@ public static class AuthEndpoints
         return app;
     }
 
-    private static Task SignInAsync(HttpContext http, UserDto user) =>
-        http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, CreatePrincipal(user, CookieAuthenticationDefaults.AuthenticationScheme),
+    private static bool IsBearerRequest(HttpContext http) =>
+        http.Request.Headers.Authorization.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
+
+    private static Task SignInWithCookieAsync(HttpContext http, AuthSession session) =>
+        http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, CreatePrincipal(session, CookieAuthenticationDefaults.AuthenticationScheme),
             new AuthenticationProperties { IsPersistent = true });
 
     /// <summary>Writes { tokenType, accessToken, expiresIn, refreshToken }.</summary>
-    private static IResult IssueToken(UserDto user) =>
-        Results.SignIn(CreatePrincipal(user, BearerTokenDefaults.AuthenticationScheme), authenticationScheme: BearerTokenDefaults.AuthenticationScheme);
+    private static IResult IssueToken(AuthSession session) =>
+        Results.SignIn(CreatePrincipal(session, BearerTokenDefaults.AuthenticationScheme), authenticationScheme: BearerTokenDefaults.AuthenticationScheme);
 
-    private static ClaimsPrincipal CreatePrincipal(UserDto user, string authenticationType)
+    private static ClaimsPrincipal CreatePrincipal(AuthSession session, string authenticationType)
     {
+        var user = session.User;
         Claim[] claims =
         [
             new(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new(ClaimTypes.Name, user.UserName),
             new(ClaimsPrincipalExtensions.DisplayNameClaim, user.DisplayName),
-            new(ClaimsPrincipalExtensions.AvatarColorClaim, user.AvatarColor)
+            new(ClaimsPrincipalExtensions.AvatarColorClaim, user.AvatarColor),
+            new(ClaimsPrincipalExtensions.SecurityStampClaim, session.SecurityStamp)
         ];
         return new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType));
     }

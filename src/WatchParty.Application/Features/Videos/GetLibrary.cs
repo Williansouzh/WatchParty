@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using WatchParty.Application.Abstractions.Data;
 using WatchParty.Application.Abstractions.Messaging;
+using WatchParty.Application.Abstractions.Services;
 
 namespace WatchParty.Application.Features.Videos;
 
@@ -14,7 +15,7 @@ public enum LibraryFilter
 public sealed record GetLibraryQuery(Guid UserId, string? Search = null, LibraryFilter Filter = LibraryFilter.All, int? Take = null)
     : IQuery<IReadOnlyList<VideoDto>>;
 
-internal sealed class GetLibraryQueryHandler(IAppDbContext db) : IQueryHandler<GetLibraryQuery, IReadOnlyList<VideoDto>>
+internal sealed class GetLibraryQueryHandler(IAppDbContext db, IVideoProgressTracker progress) : IQueryHandler<GetLibraryQuery, IReadOnlyList<VideoDto>>
 {
     public async Task<IReadOnlyList<VideoDto>> Handle(GetLibraryQuery query, CancellationToken cancellationToken)
     {
@@ -36,6 +37,7 @@ internal sealed class GetLibraryQueryHandler(IAppDbContext db) : IQueryHandler<G
         var ordered = videos.OrderByDescending(v => v.UploadedAt).AsQueryable();
         if (query.Take is > 0) ordered = ordered.Take(query.Take.Value);
 
-        return await ordered.Select(VideoMappings.ToDto(db.Favorites, query.UserId)).ToListAsync(cancellationToken);
+        var result = await ordered.Select(VideoMappings.ToDto(db.Favorites, query.UserId)).ToListAsync(cancellationToken);
+        return result.Select(v => v.WithProgress(progress)).ToList();
     }
 }

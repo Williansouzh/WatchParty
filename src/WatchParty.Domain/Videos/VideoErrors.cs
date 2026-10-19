@@ -15,6 +15,15 @@ public static class VideoErrors
     public static readonly Error UnsupportedFormat =
         Error.Validation("Video.UnsupportedFormat", "Formato de vídeo não suportado.");
 
+    public static readonly Error TooLarge =
+        Error.Validation("Video.TooLarge", "O arquivo é maior que o limite permitido.");
+
+    public static readonly Error QuotaExceeded =
+        Error.Validation("Video.QuotaExceeded", "Você atingiu o seu limite de espaço. Apague alguns vídeos antes de enviar mais.");
+
+    public static readonly Error DiskFull =
+        Error.Conflict("Video.DiskFull", "O servidor está sem espaço em disco.");
+
     public static readonly Error NoThumbnail =
         Error.NotFound("Video.NoThumbnail", "Esse vídeo não tem miniatura.");
 }

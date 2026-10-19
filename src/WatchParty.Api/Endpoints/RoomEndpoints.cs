@@ -12,7 +12,7 @@ namespace WatchParty.Api.Endpoints;
 
 public static class RoomEndpoints
 {
-    public sealed record CreateRoomRequest(string Name, Guid? VideoId);
+    public sealed record CreateRoomRequest(string Name, Guid? VideoId, Guid? PlaylistId = null);
 
     public static IEndpointRouteBuilder MapRoomEndpoints(this IEndpointRouteBuilder app)
     {
@@ -21,9 +21,20 @@ public static class RoomEndpoints
         group.MapGet("/", async (ISender sender, CancellationToken ct) =>
             Results.Ok(await sender.Send(new GetRoomsQuery(), ct)));
 
-        group.MapPost("/", async (CreateRoomRequest request, ClaimsPrincipal user, ISender sender, CancellationToken ct) =>
-            (await sender.Send(new CreateRoomCommand(user.GetUserId(), request.Name, request.VideoId), ct))
-                .ToHttp(code => Results.Created($"/api/rooms/{code}", new { code })));
+        group.MapPost("/", async (CreateRoomRequest request, ClaimsPrincipal user, ISender sender,
+            IHubContext<RoomHub, IRoomClient> hub, CancellationToken ct) =>
+        {
+            var result = await sender.Send(new CreateRoomCommand(user.GetUserId(), request.Name, request.VideoId, request.PlaylistId), ct);
+            if (result.IsFailure) return result.Error.ToProblem();
+
+            var room = await sender.Send(new GetRoomQuery(result.Value, user.GetUserId()), ct);
+            if (room.IsSuccess)
+            {
+                await hub.Clients.Group(RoomHub.LobbyGroup).RoomActivity(new RoomActivityEvent(
+                    "created", room.Value.Code, room.Value.Name, room.Value.CurrentVideo?.Title, user.GetUserId(), user.GetDisplayName()));
+            }
+            return Results.Created($"/api/rooms/{result.Value}", new { code = result.Value });
+        });
 
         group.MapGet("/{code}", async (string code, ClaimsPrincipal user, ISender sender, CancellationToken ct) =>
             (await sender.Send(new GetRoomQuery(code, user.GetUserId()), ct)).ToHttp());

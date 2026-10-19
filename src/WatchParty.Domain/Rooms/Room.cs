@@ -25,6 +25,12 @@ public sealed class Room : Entity
     public DateTime StateUpdatedAt { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
+    /// <summary>When true only the host can play, pause, seek or change the video.</summary>
+    public bool HostOnlyControl { get; private set; }
+
+    /// <summary>Last time anything happened in the room; old idle rooms are cleaned up.</summary>
+    public DateTime LastActivityAt { get; private set; }
+
     public static Room Create(string code, string name, Guid hostId, Guid? videoId, DateTime now)
     {
         if (string.IsNullOrWhiteSpace(name)) throw new DomainException("O nome da sala é obrigatório.");
@@ -36,7 +42,8 @@ public sealed class Room : Entity
             HostId = hostId,
             CurrentVideoId = videoId,
             StateUpdatedAt = now,
-            CreatedAt = now
+            CreatedAt = now,
+            LastActivityAt = now
         };
     }
 
@@ -65,8 +72,20 @@ public sealed class Room : Entity
 
     public bool IsHostedBy(Guid userId) => HostId == userId;
 
+    public bool CanControl(Guid userId) => !HostOnlyControl || IsHostedBy(userId);
+
+    public Result SetHostOnlyControl(Guid userId, bool hostOnly)
+    {
+        if (!IsHostedBy(userId)) return RoomErrors.NotHost;
+        HostOnlyControl = hostOnly;
+        return Result.Success();
+    }
+
+    public void Touch(DateTime now) => LastActivityAt = now;
+
     private void SetState(bool isPlaying, double positionSeconds, DateTime now)
     {
+        LastActivityAt = now;
         IsPlaying = isPlaying;
         PositionSeconds = double.IsFinite(positionSeconds) ? Math.Max(0, positionSeconds) : 0;
         StateUpdatedAt = now;

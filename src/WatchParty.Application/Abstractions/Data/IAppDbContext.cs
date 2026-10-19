@@ -11,10 +11,12 @@ public interface IAppDbContext
     DbSet<User> Users { get; }
     DbSet<Video> Videos { get; }
     DbSet<Favorite> Favorites { get; }
+    DbSet<Subtitle> Subtitles { get; }
     DbSet<Playlist> Playlists { get; }
     DbSet<PlaylistItem> PlaylistItems { get; }
     DbSet<Room> Rooms { get; }
     DbSet<ChatMessage> ChatMessages { get; }
+    DbSet<RoomQueueItem> RoomQueue { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

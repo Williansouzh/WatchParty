@@ -13,6 +13,7 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.DisplayName).HasMaxLength(User.DisplayNameMaxLength).IsRequired();
         builder.Property(u => u.PasswordHash).IsRequired();
         builder.Property(u => u.AvatarColor).HasMaxLength(9).IsRequired();
+        builder.Property(u => u.SecurityStamp).HasMaxLength(64).IsRequired().HasDefaultValue("initial");
         builder.HasIndex(u => u.UserName).IsUnique();
     }
 }

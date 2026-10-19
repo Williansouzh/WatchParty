@@ -27,4 +27,9 @@ public static class ResultExtensions
     /// <summary>For hub methods: failures become a <see cref="HubException"/> whose message reaches the client.</summary>
     public static T OrThrow<T>(this Result<T> result) =>
         result.IsSuccess ? result.Value : throw new HubException(result.Error.Message);
+
+    public static void OrThrow(this Result result)
+    {
+        if (result.IsFailure) throw new HubException(result.Error.Message);
+    }
 }

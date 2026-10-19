@@ -20,14 +20,9 @@ internal sealed class GetRoomQueryHandler(IAppDbContext db, IRoomPresence presen
             .FirstOrDefaultAsync(r => r.Code == code, cancellationToken);
         if (room is null) return RoomErrors.NotFound;
 
-        VideoDto? video = null;
-        if (room.CurrentVideoId is { } videoId)
-        {
-            video = await db.Videos.AsNoTracking()
-                .Where(v => v.Id == videoId)
-                .Select(VideoMappings.ToDto(db.Favorites, query.UserId))
-                .FirstOrDefaultAsync(cancellationToken);
-        }
+        var video = room.CurrentVideoId is { } videoId
+            ? await GetVideoQueryHandler.LoadAsync(db, videoId, query.UserId, cancellationToken)
+            : null;
 
         return new RoomDto(
             room.Id,
@@ -38,6 +33,8 @@ internal sealed class GetRoomQueryHandler(IAppDbContext db, IRoomPresence presen
             video,
             PlaybackStateDto.From(room),
             presence.CountUsers(room.Code),
-            room.CreatedAt);
+            room.CreatedAt,
+            room.HostOnlyControl,
+            await RoomLoader.LoadQueueAsync(db, room.Id, query.UserId, cancellationToken));
     }
 }

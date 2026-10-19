@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using WatchParty.Application.Abstractions.Data;
 using WatchParty.Application.Abstractions.Services;
+using WatchParty.Infrastructure.Maintenance;
 using WatchParty.Infrastructure.Media;
 using WatchParty.Infrastructure.Persistence;
 using WatchParty.Infrastructure.Realtime;
@@ -22,6 +23,7 @@ public static class DependencyInjection
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton<IRoomPresence, InMemoryRoomPresence>();
+        services.AddSingleton<IVideoProgressTracker, VideoProgressTracker>();
 
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
         services.AddSingleton<IVideoStorage, LocalVideoStorage>();
@@ -31,6 +33,10 @@ public static class DependencyInjection
         services.AddSingleton<VideoProcessingQueue>();
         services.AddSingleton<IVideoProcessingQueue>(sp => sp.GetRequiredService<VideoProcessingQueue>());
         services.AddHostedService<VideoProcessingWorker>();
+
+        services.Configure<BackupOptions>(configuration.GetSection(BackupOptions.SectionName));
+        services.AddScoped<IDatabaseBackup, SqliteDatabaseBackup>();
+        services.AddHostedService<MaintenanceWorker>();
 
         return services;
     }

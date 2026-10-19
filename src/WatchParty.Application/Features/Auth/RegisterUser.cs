@@ -10,7 +10,7 @@ using WatchParty.Domain.Users;
 namespace WatchParty.Application.Features.Auth;
 
 public sealed record RegisterUserCommand(string UserName, string DisplayName, string Password, string InviteCode)
-    : ICommand<Result<UserDto>>;
+    : ICommand<Result<AuthSession>>;
 
 internal sealed class RegisterUserCommandValidator : AbstractValidator<RegisterUserCommand>
 {
@@ -35,9 +35,9 @@ internal sealed class RegisterUserCommandHandler(
     IAppDbContext db,
     IPasswordHasher passwordHasher,
     IOptions<AuthOptions> options,
-    TimeProvider time) : ICommandHandler<RegisterUserCommand, Result<UserDto>>
+    TimeProvider time) : ICommandHandler<RegisterUserCommand, Result<AuthSession>>
 {
-    public async Task<Result<UserDto>> Handle(RegisterUserCommand command, CancellationToken cancellationToken)
+    public async Task<Result<AuthSession>> Handle(RegisterUserCommand command, CancellationToken cancellationToken)
     {
         var expectedCode = options.Value.InviteCode;
         if (string.IsNullOrEmpty(expectedCode) || !string.Equals(command.InviteCode.Trim(), expectedCode, StringComparison.Ordinal))
@@ -51,6 +51,6 @@ internal sealed class RegisterUserCommandHandler(
         db.Users.Add(user);
         await db.SaveChangesAsync(cancellationToken);
 
-        return UserDto.From(user);
+        return AuthSession.From(user);
     }
 }

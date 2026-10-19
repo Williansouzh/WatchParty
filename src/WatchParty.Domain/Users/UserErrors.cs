@@ -13,6 +13,9 @@ public static class UserErrors
     public static readonly Error UserNameTaken =
         Error.Conflict("User.UserNameTaken", "Esse nome de usuário já está em uso.");
 
+    public static readonly Error WrongPassword =
+        Error.Validation("User.WrongPassword", "A senha atual está incorreta.");
+
     public static readonly Error NotFound =
         Error.NotFound("User.NotFound", "Usuário não encontrado.");
 }

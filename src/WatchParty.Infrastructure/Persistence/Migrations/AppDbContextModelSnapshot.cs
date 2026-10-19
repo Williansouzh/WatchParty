@@ -118,8 +118,14 @@ namespace WatchParty.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("HostId")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("HostOnlyControl")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("IsPlaying")
                         .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("LastActivityAt")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -141,7 +147,40 @@ namespace WatchParty.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("HostId");
 
+                    b.HasIndex("LastActivityAt");
+
                     b.ToTable("Rooms");
+                });
+
+            modelBuilder.Entity("WatchParty.Domain.Rooms.RoomQueueItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("AddedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AddedById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("RoomId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("VideoId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AddedById");
+
+                    b.HasIndex("VideoId");
+
+                    b.HasIndex("RoomId", "Position");
+
+                    b.ToTable("RoomQueue");
                 });
 
             modelBuilder.Entity("WatchParty.Domain.Users.User", b =>
@@ -165,6 +204,13 @@ namespace WatchParty.Infrastructure.Persistence.Migrations
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<string>("SecurityStamp")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("initial");
 
                     b.Property<string>("UserName")
                         .IsRequired()
@@ -197,6 +243,43 @@ namespace WatchParty.Infrastructure.Persistence.Migrations
                     b.ToTable("Favorites");
                 });
 
+            modelBuilder.Entity("WatchParty.Domain.Videos.Subtitle", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FileKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Language")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("UploadedById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("VideoId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UploadedById");
+
+                    b.HasIndex("VideoId");
+
+                    b.ToTable("Subtitles");
+                });
+
             modelBuilder.Entity("WatchParty.Domain.Videos.Video", b =>
                 {
                     b.Property<Guid>("Id")
@@ -220,6 +303,10 @@ namespace WatchParty.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("FileKey")
                         .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("HlsKey")
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
@@ -323,6 +410,31 @@ namespace WatchParty.Infrastructure.Persistence.Migrations
                     b.Navigation("Host");
                 });
 
+            modelBuilder.Entity("WatchParty.Domain.Rooms.RoomQueueItem", b =>
+                {
+                    b.HasOne("WatchParty.Domain.Users.User", "AddedBy")
+                        .WithMany()
+                        .HasForeignKey("AddedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("WatchParty.Domain.Rooms.Room", null)
+                        .WithMany()
+                        .HasForeignKey("RoomId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("WatchParty.Domain.Videos.Video", "Video")
+                        .WithMany()
+                        .HasForeignKey("VideoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AddedBy");
+
+                    b.Navigation("Video");
+                });
+
             modelBuilder.Entity("WatchParty.Domain.Videos.Favorite", b =>
                 {
                     b.HasOne("WatchParty.Domain.Users.User", null)
@@ -330,6 +442,20 @@ namespace WatchParty.Infrastructure.Persistence.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("WatchParty.Domain.Videos.Video", null)
+                        .WithMany()
+                        .HasForeignKey("VideoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("WatchParty.Domain.Videos.Subtitle", b =>
+                {
+                    b.HasOne("WatchParty.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UploadedById")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("WatchParty.Domain.Videos.Video", null)
                         .WithMany()

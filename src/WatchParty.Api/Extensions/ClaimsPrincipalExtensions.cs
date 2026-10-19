@@ -6,6 +6,7 @@ public static class ClaimsPrincipalExtensions
 {
     public const string DisplayNameClaim = "display_name";
     public const string AvatarColorClaim = "avatar_color";
+    public const string SecurityStampClaim = "stamp";
 
     public static Guid GetUserId(this ClaimsPrincipal user) =>
         Guid.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var id)

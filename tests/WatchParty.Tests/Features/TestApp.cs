@@ -10,7 +10,9 @@ using WatchParty.Application.Abstractions.Services;
 using WatchParty.Domain.Users;
 using WatchParty.Domain.Videos;
 using WatchParty.Infrastructure.Persistence;
+using WatchParty.Infrastructure.Media;
 using WatchParty.Infrastructure.Realtime;
+using WatchParty.Infrastructure.Storage;
 using WatchParty.Infrastructure.Security;
 
 namespace WatchParty.Tests.Features;
@@ -24,14 +26,18 @@ public sealed class TestApp : IAsyncDisposable
     private readonly ServiceProvider _provider;
 
     public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 1, 1, 20, 0, 0, TimeSpan.Zero));
-    public IRoomPresence Presence { get; } = new InMemoryRoomPresence();
+    public IRoomPresence Presence { get; }
+    public string MediaRoot { get; } = Path.Combine(Path.GetTempPath(), "watchparty-tests", Guid.NewGuid().ToString("N"));
+    public RecordingQueue Queue { get; } = new();
 
-    public TestApp()
+    public TestApp(Action<IServiceCollection>? configure = null, Dictionary<string, string?>? settings = null)
     {
+        Presence = new InMemoryRoomPresence(Time);
         _connection.Open();
 
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Auth:InviteCode"] = InviteCode })
+            .AddInMemoryCollection(settings ?? [])
             .Build();
 
         var services = new ServiceCollection();
@@ -42,6 +48,11 @@ public sealed class TestApp : IAsyncDisposable
         services.AddSingleton<TimeProvider>(Time);
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton(Presence);
+        services.AddSingleton<IVideoProgressTracker, VideoProgressTracker>();
+        services.AddSingleton(Microsoft.Extensions.Options.Options.Create(new StorageOptions { RootPath = MediaRoot }));
+        services.AddSingleton<IVideoStorage, LocalVideoStorage>();
+        services.AddSingleton<IVideoProcessingQueue>(Queue);
+        configure?.Invoke(services);
         _provider = services.BuildServiceProvider();
 
         using var scope = _provider.CreateScope();
@@ -81,5 +92,12 @@ public sealed class TestApp : IAsyncDisposable
     {
         await _provider.DisposeAsync();
         await _connection.DisposeAsync();
+        if (Directory.Exists(MediaRoot)) Directory.Delete(MediaRoot, recursive: true);
+    }
+
+    public sealed class RecordingQueue : IVideoProcessingQueue
+    {
+        public List<Guid> Enqueued { get; } = [];
+        public void Enqueue(Guid videoId) => Enqueued.Add(videoId);
     }
 }
