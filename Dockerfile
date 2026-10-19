@@ -21,7 +21,8 @@ COPY --from=build /app .
 ENV ASPNETCORE_URLS=http://+:8080 \
     ASPNETCORE_FORWARDEDHEADERS_ENABLED=true \
     ConnectionStrings__Default="Data Source=/data/watchparty.db" \
-    Storage__RootPath=/data/media
+    Storage__RootPath=/data/media \
+    DataProtection__KeysPath=/data/keys
 
 VOLUME /data
 EXPOSE 8080

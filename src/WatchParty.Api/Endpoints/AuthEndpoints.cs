@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.BearerToken;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using WatchParty.Api.Common;
 using WatchParty.Api.Extensions;
@@ -36,6 +37,20 @@ public static class AuthEndpoints
             return Results.Ok(result.Value);
         }).RequireRateLimiting(RateLimits.Auth);
 
+        // Mobile app: same credentials, but answers with a bearer token instead of setting a cookie.
+        group.MapPost("/token/register", async (RegisterRequest request, ISender sender, CancellationToken ct) =>
+        {
+            var result = await sender.Send(
+                new RegisterUserCommand(request.UserName, request.DisplayName, request.Password, request.InviteCode), ct);
+            return result.IsSuccess ? IssueToken(result.Value) : result.Error.ToProblem();
+        }).RequireRateLimiting(RateLimits.Auth);
+
+        group.MapPost("/token/login", async (LoginRequest request, ISender sender, CancellationToken ct) =>
+        {
+            var result = await sender.Send(new LoginCommand(request.UserName, request.Password), ct);
+            return result.IsSuccess ? IssueToken(result.Value) : result.Error.ToProblem();
+        }).RequireRateLimiting(RateLimits.Auth);
+
         group.MapPost("/logout", async (HttpContext http) =>
         {
             await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -55,7 +70,15 @@ public static class AuthEndpoints
         return app;
     }
 
-    private static Task SignInAsync(HttpContext http, UserDto user)
+    private static Task SignInAsync(HttpContext http, UserDto user) =>
+        http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, CreatePrincipal(user, CookieAuthenticationDefaults.AuthenticationScheme),
+            new AuthenticationProperties { IsPersistent = true });
+
+    /// <summary>Writes { tokenType, accessToken, expiresIn, refreshToken }.</summary>
+    private static IResult IssueToken(UserDto user) =>
+        Results.SignIn(CreatePrincipal(user, BearerTokenDefaults.AuthenticationScheme), authenticationScheme: BearerTokenDefaults.AuthenticationScheme);
+
+    private static ClaimsPrincipal CreatePrincipal(UserDto user, string authenticationType)
     {
         Claim[] claims =
         [
@@ -64,9 +87,6 @@ public static class AuthEndpoints
             new(ClaimsPrincipalExtensions.DisplayNameClaim, user.DisplayName),
             new(ClaimsPrincipalExtensions.AvatarColorClaim, user.AvatarColor)
         ];
-        var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
-
-        return http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal,
-            new AuthenticationProperties { IsPersistent = true });
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType));
     }
 }

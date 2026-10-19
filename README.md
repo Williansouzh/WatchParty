@@ -5,7 +5,9 @@ Você envia um vídeo, cria uma sala e manda o link. O play, o pause e os pulos 
 O visual é inspirado no Spotify.
 
 - **Backend:** .NET 10, ASP.NET Core, Clean Architecture + CQRS, EF Core + SQLite, SignalR
-- **Frontend:** HTML/CSS/JS puro (sem build), servido pelo próprio backend e instalável como app (PWA)
+- **App (Android/iOS):** Flutter, na pasta [`mobile/`](mobile/)
+- **Site:** HTML/CSS/JS puro (sem build), servido pelo próprio backend e instalável como app (PWA)
+- O app e o site usam o mesmo servidor e **se misturam na mesma sala**: alguém no celular e alguém no PC assistem juntos
 - **Vídeo:** conversão automática com FFmpeg para MP4/H.264/AAC, que roda em qualquer celular ou navegador
 - **Voz:** WebRTC peer-to-peer, com o SignalR fazendo só a "apresentação" entre as pessoas
 
@@ -79,6 +81,52 @@ Se alguém entrar na call e não ouvir ninguém (redes corporativas, alguns 4G),
     { "Urls": [ "turn:seu-servidor:3478" ], "Username": "usuario", "Credential": "senha" }
   ]
 }
+```
+
+---
+
+## 📱 App Flutter (Android e iOS)
+
+O app fica em `mobile/` e fala com o mesmo servidor do site.
+
+### Gerar o APK do Android
+```bash
+cd mobile
+flutter pub get
+flutter build apk --release
+# → build/app/outputs/flutter-apk/app-release.apk
+```
+Mande o `.apk` para os amigos (WhatsApp, Drive…) e instale no celular. O Android vai pedir para permitir a instalação de "fontes desconhecidas".
+
+Ao abrir o app pela primeira vez, informe o **endereço do servidor** (por exemplo `https://algo.trycloudflare.com` ou `http://192.168.0.10:5080` na mesma rede Wi-Fi). Dá para deixar o endereço já embutido no app:
+```bash
+flutter build apk --release --dart-define=SERVER_URL=https://seu-servidor.com
+```
+
+### iPhone
+Precisa de um Mac com Xcode: `cd mobile && flutter build ios`. Para instalar no celular dos amigos sem App Store, use o TestFlight, que exige conta de desenvolvedor Apple (US$ 99/ano). Sem conta paga, dá para instalar só no seu próprio iPhone pelo Xcode, e a instalação vale por 7 dias.
+
+### Como o app é organizado
+```
+mobile/lib/
+├── core/        api.dart (REST com token), hub_client.dart (cliente SignalR próprio),
+│                session.dart (servidor + token salvos), models.dart, theme.dart (cores do Spotify)
+├── widgets/     cards, capas, diálogos, layout de "playlist" reutilizável
+└── features/    auth, home, search, library, playlist, video, upload, rooms,
+                 room/ (room_controller.dart = sincronização, voice_chat.dart = WebRTC, player_view.dart)
+```
+- **Login por token:** o app usa `POST /api/auth/token/login`, e o site continua usando cookie. As duas formas funcionam no mesmo servidor.
+- **Cliente SignalR próprio** (`hub_client.dart`, cerca de 150 linhas): o pacote da comunidade não funciona no Flutter Web e trazia dependências desnecessárias. Ele reconecta sozinho, como o cliente oficial.
+- **Player com controles próprios:** play/pause, ±10 s, barra de progresso e tela cheia na horizontal. Os controles passam pela sincronização da sala.
+- **Voz:** `flutter_webrtc`, no mesmo formato de mensagens do site, então dá para falar do app com quem está no navegador.
+
+### Testes do app
+```bash
+cd mobile
+flutter analyze
+flutter test
+# teste contra um servidor rodando:
+WATCHPARTY_SERVER=http://localhost:5080 WATCHPARTY_USER=will WATCHPARTY_PASSWORD=senha123 flutter test
 ```
 
 ---

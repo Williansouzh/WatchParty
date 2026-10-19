@@ -1,6 +1,8 @@
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication.BearerToken;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
 using WatchParty.Api.Common;
@@ -18,7 +20,18 @@ builder.Services
 
 builder.Services.Configure<WebRtcOptions>(builder.Configuration.GetSection(WebRtcOptions.SectionName));
 
-builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+// Browser uses a cookie; the mobile app sends "Authorization: Bearer <token>"
+// (or ?access_token= on the SignalR websocket, where headers can't be set).
+const string AuthScheme = "CookieOrToken";
+builder.Services.AddAuthentication(AuthScheme)
+    .AddPolicyScheme(AuthScheme, AuthScheme, options =>
+    {
+        options.ForwardDefaultSelector = context =>
+            context.Request.Headers.Authorization.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            || context.Request.Query.ContainsKey("access_token")
+                ? BearerTokenDefaults.AuthenticationScheme
+                : CookieAuthenticationDefaults.AuthenticationScheme;
+    })
     .AddCookie(options =>
     {
         options.Cookie.Name = "watchparty.auth";
@@ -37,6 +50,19 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return Task.CompletedTask;
         };
+    })
+    .AddBearerToken(options =>
+    {
+        options.BearerTokenExpiration = TimeSpan.FromDays(30);
+        options.Events.OnMessageReceived = context =>
+        {
+            if (context.Request.Query.TryGetValue("access_token", out var token)
+                && (context.Request.Path.StartsWithSegments("/hubs") || context.Request.Path.StartsWithSegments("/api/videos")))
+            {
+                context.Token = token;
+            }
+            return Task.CompletedTask;
+        };
     });
 builder.Services.AddAuthorization();
 
@@ -53,6 +79,10 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 builder.Services.AddSignalR(options => options.AddFilter<HubExceptionFilter>())
     .AddJsonProtocol(options => options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
+// Keys that sign cookies and tokens live next to the data, so logins survive restarts and container rebuilds.
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(builder.Configuration["DataProtection:KeysPath"] ?? "data/keys"));
 
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
