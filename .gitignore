@@ -7,3 +7,6 @@ obj/
 data/
 src/WatchParty.Api/data/
 *.apk
+
+# Chave de assinatura do APK (guarde fora do repositório)
+WatchParty-chave-assinatura.zip
