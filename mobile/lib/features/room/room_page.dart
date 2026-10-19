@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
@@ -7,6 +8,8 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/format.dart';
+import '../../core/pip.dart';
+import '../../core/models.dart';
 import '../../core/theme.dart';
 import '../../widgets/actions.dart';
 import '../../widgets/common.dart';
@@ -26,7 +29,7 @@ class _RoomPageState extends State<RoomPage> {
   RoomController? _room;
   StreamSubscription<String>? _toasts;
   AppLifecycleListener? _lifecycle;
-  var _tab = 0; // 0 = chat, 1 = people
+  var _tab = 0; // 0 = chat, 1 = people, 2 = queue
   final _message = TextEditingController();
   final _chatScroll = ScrollController();
   var _leaving = false;
@@ -41,17 +44,20 @@ class _RoomPageState extends State<RoomPage> {
     _toasts = room.toasts.listen((m) => mounted ? showToast(context, m, bottomOffset: 150) : null);
     room.addListener(_onRoomChanged);
     room.start();
-    WakelockPlus.enable();
+    _keepScreenOn(true);
     _lifecycle = AppLifecycleListener(onResume: room.resync);
+    // Leaving the app while in a room keeps the video going in a floating window (Android).
+    Pip.setEnabled(true);
   }
 
   @override
   void dispose() {
+    Pip.setEnabled(false);
     _lifecycle?.dispose();
     _toasts?.cancel();
     _room?.removeListener(_onRoomChanged);
     _room?.dispose();
-    WakelockPlus.disable();
+    _keepScreenOn(false);
     _message.dispose();
     _chatScroll.dispose();
     super.dispose();
@@ -64,7 +70,7 @@ class _RoomPageState extends State<RoomPage> {
     if (room.status == RoomStatus.deleted && !_leaving) {
       _leaving = true;
       showToast(context, 'A sala foi encerrada.');
-      context.pop();
+      _leave();
       return;
     }
     // Keep the chat pinned to the newest message.
@@ -79,6 +85,9 @@ class _RoomPageState extends State<RoomPage> {
     }
   }
 
+  /// Opened from an invite link the room may be the only screen: then "back" means home.
+  void _leave() => context.canPop() ? context.pop() : context.go('/home');
+
   Future<void> _send() async {
     final text = _message.text.trim();
     if (text.isEmpty) return;
@@ -91,6 +100,39 @@ class _RoomPageState extends State<RoomPage> {
     if (video != null) await _room!.changeVideo(video.id);
   }
 
+  Future<void> _addToQueue() async {
+    final video = await pickVideo(context, title: 'Adicionar à fila');
+    if (video != null) await _room!.addToQueue(video.id);
+  }
+
+  Future<void> _addPlaylistToQueue() async {
+    final playlists = await context.api.playlists().catchError((_) => <PlaylistSummary>[]);
+    if (!mounted) return;
+    final chosen = await showModalBottomSheet<PlaylistSummary>(
+      context: context,
+      useSafeArea: true,
+      builder: (context) => ListView(
+        shrinkWrap: true,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text('Adicionar playlist à fila', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+          ),
+          if (playlists.isEmpty) const EmptyState(title: 'Nenhuma playlist ainda'),
+          for (final p in playlists)
+            ListRow(
+              leading: PlaylistCover(playlistId: p.id, coverVideoId: p.coverVideoId),
+              title: p.name,
+              subtitle: plural(p.itemCount, 'vídeo', 'vídeos'),
+              onTap: () => Navigator.pop(context, p),
+            ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+    if (chosen != null) await _room!.addPlaylistToQueue(chosen.id);
+  }
+
   Future<void> _invite() async {
     final room = _room!.room!;
     final server = context.session.serverUrl;
@@ -98,7 +140,7 @@ class _RoomPageState extends State<RoomPage> {
       subject: room.name,
       text: 'Bora assistir junto? 🍿\n'
           'Sala "${room.name}" • código ${room.code}\n'
-          'No app: Salas → Entrar com o código\n'
+          'No app: watchparty://app/room/${room.code}\n'
           'No navegador: $server/#/room/${room.code}',
     ));
   }
@@ -113,8 +155,12 @@ class _RoomPageState extends State<RoomPage> {
   Widget build(BuildContext context) {
     final room = _room!;
     return ListenableBuilder(
-      listenable: room,
+      listenable: Listenable.merge([room, Pip.active]),
       builder: (context, _) {
+        // In the floating window only the video fits.
+        if (Pip.active.value && room.room != null) {
+          return Scaffold(backgroundColor: Colors.black, body: PlayerView(room: room, fullscreen: true));
+        }
         if (room.status == RoomStatus.connecting && room.room == null) {
           return Scaffold(appBar: AppBar(), body: const Center(child: CircularProgressIndicator()));
         }
@@ -124,7 +170,7 @@ class _RoomPageState extends State<RoomPage> {
             body: EmptyState(
               title: 'Sala não encontrada',
               message: room.error,
-              action: FilledButton(onPressed: () => context.pop(), child: const Text('Voltar')),
+              action: FilledButton(onPressed: () => _leave(), child: const Text('Voltar')),
             ),
           );
         }
@@ -135,7 +181,7 @@ class _RoomPageState extends State<RoomPage> {
           body: SafeArea(
             child: Column(
               children: [
-                _TopBar(title: info.name, status: room.status, onBack: () => context.pop()),
+                _TopBar(title: info.name, status: room.status, onBack: () => _leave()),
                 PlayerView(room: room, onPickVideo: _changeVideo),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
@@ -160,18 +206,27 @@ class _RoomPageState extends State<RoomPage> {
                                 const Icon(Icons.circle, size: 8, color: AppColors.accent),
                                 const SizedBox(width: 4),
                                 Text('${room.watchingCount} assistindo', style: Theme.of(context).textTheme.bodySmall),
+                                if (info.hostOnlyControl) ...[
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text('🔒 só ${info.hostName}',
+                                        overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+                                  ),
+                                ],
                               ],
                             ),
                           ],
                         ),
                       ),
                       IconButton(tooltip: 'Convidar', onPressed: _invite, icon: const Icon(Icons.ios_share_rounded)),
-                      IconButton(tooltip: 'Trocar vídeo', onPressed: _changeVideo, icon: const Icon(Icons.swap_horiz_rounded)),
+                      if (room.canControl)
+                        IconButton(tooltip: 'Trocar vídeo', onPressed: _changeVideo, icon: const Icon(Icons.swap_horiz_rounded)),
                       if (room.isHost)
                         IconButton(tooltip: 'Encerrar sala', onPressed: _deleteRoom, icon: const Icon(Icons.delete_outline, color: AppColors.danger)),
                     ],
                   ),
                 ),
+                _ReactionsRow(room: room),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: Row(
@@ -196,6 +251,17 @@ class _RoomPageState extends State<RoomPage> {
                           room.setChatVisible(false);
                         },
                       ),
+                      const SizedBox(width: 8),
+                      _TabChip(
+                        key: const Key('queue-tab'),
+                        label: room.queue.isEmpty ? 'Fila' : 'Fila (${room.queue.length})',
+                        icon: Icons.queue_music_rounded,
+                        selected: _tab == 2,
+                        onTap: () {
+                          setState(() => _tab = 2);
+                          room.setChatVisible(false);
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -203,7 +269,11 @@ class _RoomPageState extends State<RoomPage> {
                   child: Container(
                     margin: const EdgeInsets.fromLTRB(8, 4, 8, 0),
                     decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(8)),
-                    child: _tab == 0 ? _ChatList(room: room, scroll: _chatScroll) : _PeopleList(room: room),
+                    child: switch (_tab) {
+                      0 => _ChatList(room: room, scroll: _chatScroll),
+                      1 => _PeopleList(room: room),
+                      _ => _QueueList(room: room, onAddVideo: _addToQueue, onAddPlaylist: _addPlaylistToQueue),
+                    },
                   ),
                 ),
                 if (_tab == 0) _ChatInput(controller: _message, onSend: _send),
@@ -256,7 +326,7 @@ class _TopBar extends StatelessWidget {
 }
 
 class _TabChip extends StatelessWidget {
-  const _TabChip({required this.label, required this.icon, required this.selected, required this.onTap, this.badge = 0});
+  const _TabChip({super.key, required this.label, required this.icon, required this.selected, required this.onTap, this.badge = 0});
 
   final String label;
   final IconData icon;
@@ -371,9 +441,11 @@ class _PeopleList extends StatelessWidget {
         for (final p in people)
           ListTile(
             leading: Avatar(name: p.displayName, color: p.avatarColor, size: 36, speaking: room.isSpeaking(p.connectionId)),
-            title: Text('${p.displayName}${p.connectionId == room.myConnectionId ? ' (você)' : ''}',
+            title: Text(
+                '${p.displayName}${p.connectionId == room.myConnectionId ? ' (você)' : ''}${p.userId == room.room?.hostId ? ' 👑' : ''}',
                 style: const TextStyle(fontWeight: FontWeight.w600)),
-            subtitle: Text(p.inVoice ? (p.isMuted ? 'Na call • mutado' : 'Na call') : 'Assistindo',
+            subtitle: Text(
+                p.isBuffering ? 'Carregando…' : p.inVoice ? (p.isMuted ? 'Na call • mutado' : 'Na call') : 'Assistindo',
                 style: const TextStyle(color: AppColors.textSub)),
             trailing: p.inVoice ? Icon(p.isMuted ? Icons.mic_off : Icons.mic, color: AppColors.textSub, size: 20) : null,
           ),
@@ -541,4 +613,117 @@ class _CircleButton extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ReactionsRow extends StatelessWidget {
+  const _ReactionsRow({required this.room});
+
+  final RoomController room;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        children: [
+          for (final emoji in RoomController.reactions)
+            Semantics(
+              button: true,
+              label: 'Reagir $emoji',
+              excludeSemantics: true,
+              child: InkResponse(
+                radius: 22,
+                onTap: () => room.sendReaction(emoji),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Center(child: Text(emoji, style: const TextStyle(fontSize: 24))),
+                ),
+              ),
+            ),
+          if (room.isHost) ...[
+            const SizedBox(width: 12),
+            Center(
+              child: Row(
+                children: [
+                  const Text('Só eu controlo', style: TextStyle(fontSize: 12, color: AppColors.textSub)),
+                  Switch(
+                    key: const Key('host-only'),
+                    value: room.room?.hostOnlyControl ?? false,
+                    onChanged: room.setHostOnly,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _QueueList extends StatelessWidget {
+  const _QueueList({required this.room, required this.onAddVideo, required this.onAddPlaylist});
+
+  final RoomController room;
+  final VoidCallback onAddVideo;
+  final VoidCallback onAddPlaylist;
+
+  @override
+  Widget build(BuildContext context) {
+    final userId = context.session.user?.id;
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(onPressed: onAddVideo, icon: const Icon(Icons.add, size: 18), label: const Text('Vídeo')),
+              OutlinedButton.icon(onPressed: onAddPlaylist, icon: const Icon(Icons.queue_music, size: 18), label: const Text('Playlist')),
+              if (room.queue.isNotEmpty && room.canControl)
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
+                  onPressed: room.playNext,
+                  icon: const Icon(Icons.skip_next_rounded),
+                  label: const Text('Próximo'),
+                ),
+            ],
+          ),
+        ),
+        if (room.queue.isEmpty)
+          const EmptyState(title: 'A fila está vazia', message: 'Adicione vídeos para emendar um no outro.'),
+        for (final (i, item) in room.queue.indexed)
+          ListRow(
+            leading: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(width: 20, child: Text('${i + 1}', style: const TextStyle(color: AppColors.textSub))),
+                VideoThumb.of(item.video, width: 80, radius: 4),
+              ],
+            ),
+            title: item.video.title,
+            subtitle: 'sugerido por ${item.addedByName}',
+            trailing: item.addedById == userId || room.canControl
+                ? IconButton(
+                    tooltip: 'Tirar da fila',
+                    icon: const Icon(Icons.close, color: AppColors.textSub),
+                    onPressed: () => room.removeFromQueue(item.itemId),
+                  )
+                : null,
+          ),
+      ],
+    );
+  }
+}
+
+/// Keeps the phone screen on. Skipped on the web build, where browsers often refuse it (e.g. plain HTTP).
+Future<void> _keepScreenOn(bool on) async {
+  if (kIsWeb) return;
+  try {
+    on ? await WakelockPlus.enable() : await WakelockPlus.disable();
+  } catch (_) {}
 }

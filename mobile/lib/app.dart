@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/api.dart';
 import 'core/app_scope.dart';
+import 'core/lobby.dart';
+import 'core/notifications.dart';
 import 'core/session.dart';
 import 'core/theme.dart';
 import 'features/auth/login_page.dart';
@@ -36,8 +40,12 @@ class _WatchPartyAppState extends State<WatchPartyApp> {
     redirect: (context, state) {
       final signedIn = widget.session.isSignedIn;
       final atLogin = state.matchedLocation == '/login';
-      if (!signedIn && !atLogin) return '/login';
-      if (signedIn && atLogin) return '/home';
+      // Remember where an invite link wanted to go, and continue there after logging in.
+      if (!signedIn && !atLogin) {
+        final target = state.uri.toString();
+        return target == '/home' || target == '/' ? '/login' : '/login?from=${Uri.encodeComponent(target)}';
+      }
+      if (signedIn && atLogin) return state.uri.queryParameters['from'] ?? '/home';
       return null;
     },
     routes: [
@@ -71,8 +79,60 @@ class _WatchPartyAppState extends State<WatchPartyApp> {
     ],
   );
 
+  final _messenger = GlobalKey<ScaffoldMessengerState>();
+  late final Lobby _lobby = Lobby(widget.session);
+  StreamSubscription<RoomActivity>? _lobbySubscription;
+  AppLifecycleListener? _lifecycle;
+  var _inForeground = true;
+  var _lobbyRunning = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Notifications.init(onOpenRoom: (code) => _router.push('/room/$code'));
+    _lifecycle = AppLifecycleListener(onStateChange: (s) => _inForeground = s == AppLifecycleState.resumed);
+    _lobbySubscription = _lobby.activity.listen(_onRoomActivity);
+    widget.session.addListener(_onSessionChanged);
+    _onSessionChanged();
+  }
+
+  Future<void> _onSessionChanged() async {
+    final signedIn = widget.session.isSignedIn;
+    if (signedIn && !_lobbyRunning) {
+      _lobbyRunning = true;
+      await _lobby.start();
+      await Notifications.requestPermission();
+    } else if (!signedIn && _lobbyRunning) {
+      _lobbyRunning = false;
+      await _lobby.stop();
+    }
+  }
+
+  /// A friend created or started a room: in-app banner when we're looking, system notification otherwise.
+  void _onRoomActivity(RoomActivity activity) {
+    final here = _router.routerDelegate.currentConfiguration.uri.path;
+    if (here.toUpperCase().endsWith('/ROOM/${activity.code}')) return;
+
+    if (_inForeground) {
+      _messenger.currentState
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(activity.text, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w600)),
+          backgroundColor: AppColors.text,
+          duration: const Duration(seconds: 8),
+          action: SnackBarAction(label: 'Entrar', textColor: Colors.black, onPressed: () => _router.push('/room/${activity.code}')),
+        ));
+    } else {
+      Notifications.roomActivity(code: activity.code, text: activity.text);
+    }
+  }
+
   @override
   void dispose() {
+    widget.session.removeListener(_onSessionChanged);
+    _lobbySubscription?.cancel();
+    _lifecycle?.dispose();
+    _lobby.stop();
     _router.dispose();
     super.dispose();
   }
@@ -85,6 +145,7 @@ class _WatchPartyAppState extends State<WatchPartyApp> {
       child: MaterialApp.router(
         title: 'WatchParty',
         debugShowCheckedModeBanner: false,
+        scaffoldMessengerKey: _messenger,
         theme: buildTheme(),
         darkTheme: buildTheme(),
         themeMode: ThemeMode.dark,

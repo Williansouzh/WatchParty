@@ -36,6 +36,9 @@ class Video {
     required this.uploadedByName,
     required this.uploadedAt,
     required this.isFavorite,
+    this.hasHls = false,
+    this.processingProgress,
+    this.subtitles = const [],
   });
 
   factory Video.fromJson(Json j) => Video(
@@ -51,6 +54,9 @@ class Video {
         uploadedByName: j['uploadedByName'] as String,
         uploadedAt: _date(j['uploadedAt']),
         isFavorite: j['isFavorite'] as bool,
+        hasHls: j['hasHls'] as bool? ?? false,
+        processingProgress: (j['processingProgress'] as num?)?.toDouble(),
+        subtitles: (j['subtitles'] as List? ?? const []).map((e) => SubtitleInfo.fromJson(asJson(e))).toList(),
       );
 
   final String id;
@@ -65,6 +71,11 @@ class Video {
   final String uploadedByName;
   final DateTime uploadedAt;
   final bool isFavorite;
+  final bool hasHls;
+
+  /// 0..1 while the server converts the file.
+  final double? processingProgress;
+  final List<SubtitleInfo> subtitles;
 
   bool get isReady => status == 'Ready';
   bool get isProcessing => status == 'Processing';
@@ -83,8 +94,45 @@ class Video {
         uploadedByName: uploadedByName,
         uploadedAt: uploadedAt,
         isFavorite: isFavorite ?? this.isFavorite,
+        hasHls: hasHls,
+        processingProgress: processingProgress,
+        subtitles: subtitles,
       );
 }
+
+class SubtitleInfo {
+  const SubtitleInfo({required this.id, required this.label, required this.language, required this.uploadedById});
+
+  factory SubtitleInfo.fromJson(Json j) => SubtitleInfo(
+        id: j['id'] as String,
+        label: j['label'] as String,
+        language: j['language'] as String?,
+        uploadedById: j['uploadedById'] as String?,
+      );
+
+  final String id;
+  final String label;
+  final String? language;
+  final String? uploadedById;
+}
+
+class QueueItem {
+  const QueueItem({required this.itemId, required this.video, required this.addedById, required this.addedByName});
+
+  factory QueueItem.fromJson(Json j) => QueueItem(
+        itemId: j['itemId'] as String,
+        video: Video.fromJson(asJson(j['video'])),
+        addedById: j['addedById'] as String,
+        addedByName: j['addedByName'] as String,
+      );
+
+  final String itemId;
+  final Video video;
+  final String addedById;
+  final String addedByName;
+}
+
+List<QueueItem> parseQueue(Object? value) => (value as List? ?? const []).map((e) => QueueItem.fromJson(asJson(e))).toList();
 
 class PlaylistSummary {
   const PlaylistSummary({
@@ -209,6 +257,8 @@ class Room {
     required this.hostName,
     required this.currentVideo,
     required this.playback,
+    this.hostOnlyControl = false,
+    this.queue = const [],
   });
 
   factory Room.fromJson(Json j) => Room(
@@ -218,6 +268,8 @@ class Room {
         hostName: j['hostName'] as String,
         currentVideo: j['currentVideo'] == null ? null : Video.fromJson(asJson(j['currentVideo'])),
         playback: PlaybackState.fromJson(asJson(j['playback'])),
+        hostOnlyControl: j['hostOnlyControl'] as bool? ?? false,
+        queue: parseQueue(j['queue']),
       );
 
   final String code;
@@ -226,9 +278,21 @@ class Room {
   final String hostName;
   final Video? currentVideo;
   final PlaybackState playback;
+  final bool hostOnlyControl;
+  final List<QueueItem> queue;
 
-  Room withVideo(Video? video) =>
-      Room(code: code, name: name, hostId: hostId, hostName: hostName, currentVideo: video, playback: playback);
+  Room copyWith({Video? video, bool clearVideo = false, bool? hostOnlyControl}) => Room(
+        code: code,
+        name: name,
+        hostId: hostId,
+        hostName: hostName,
+        currentVideo: clearVideo ? null : (video ?? currentVideo),
+        playback: playback,
+        hostOnlyControl: hostOnlyControl ?? this.hostOnlyControl,
+        queue: queue,
+      );
+
+  Room withVideo(Video? video) => copyWith(video: video, clearVideo: video == null);
 }
 
 class ChatMessage {
@@ -266,6 +330,7 @@ class Participant {
     required this.avatarColor,
     required this.inVoice,
     required this.isMuted,
+    this.isBuffering = false,
   });
 
   factory Participant.fromJson(Json j) => Participant(
@@ -275,6 +340,7 @@ class Participant {
         avatarColor: j['avatarColor'] as String,
         inVoice: j['inVoice'] as bool,
         isMuted: j['isMuted'] as bool,
+        isBuffering: j['isBuffering'] as bool? ?? false,
       );
 
   final String connectionId;
@@ -283,6 +349,7 @@ class Participant {
   final String avatarColor;
   final bool inVoice;
   final bool isMuted;
+  final bool isBuffering;
 
   Participant copyWith({bool? inVoice, bool? isMuted}) => Participant(
         connectionId: connectionId,
@@ -291,5 +358,6 @@ class Participant {
         avatarColor: avatarColor,
         inVoice: inVoice ?? this.inVoice,
         isMuted: isMuted ?? this.isMuted,
+        isBuffering: isBuffering,
       );
 }

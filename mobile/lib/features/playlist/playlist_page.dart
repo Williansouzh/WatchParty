@@ -49,6 +49,17 @@ class _PlaylistPageState extends State<PlaylistPage> {
     }
   }
 
+  /// First video now, the rest queued in the room.
+  Future<void> _startMarathon(Playlist p) async {
+    try {
+      final name = 'Maratona: ${p.name}';
+      final code = await context.api.createRoom(name.length > 80 ? name.substring(0, 80) : name, playlistId: p.id);
+      if (mounted) context.push('/room/$code');
+    } on ApiException catch (e) {
+      if (mounted) showToast(context, e.message, error: true);
+    }
+  }
+
   Future<void> _addVideo() async {
     final video = await pickVideo(context, title: 'Adicionar à playlist');
     if (video == null || !mounted) return;
@@ -73,7 +84,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
     try {
       await context.api.deletePlaylist(p.id);
       notifyLibraryChanged();
-      if (mounted) context.pop();
+      if (mounted) context.canPop() ? context.pop() : context.go('/library');
     } on ApiException catch (e) {
       if (mounted) showToast(context, e.message, error: true);
     }
@@ -113,7 +124,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
             ],
           ),
         const Spacer(),
-        if (firstReady != null) PlayFab(onPressed: () => startRoomForVideo(context, firstReady)),
+        if (firstReady != null) PlayFab(label: 'Maratona em grupo', onPressed: () => _startMarathon(p)),
       ],
       children: p.items.isEmpty
           ? [

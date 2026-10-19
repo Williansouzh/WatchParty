@@ -2,6 +2,19 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.watchparty.watchparty</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>watchparty</string>
+			</array>
+		</dict>
+	</array>
+	<key>FlutterDeepLinkingEnabled</key>
+	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>O WatchParty usa o microfone para o chat de voz com seus amigos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

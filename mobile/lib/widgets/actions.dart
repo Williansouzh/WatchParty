@@ -14,7 +14,8 @@ final libraryVersion = ValueNotifier<int>(0);
 void notifyLibraryChanged() => libraryVersion.value++;
 
 class FormFieldSpec {
-  const FormFieldSpec(this.name, this.label, {this.initial, this.multiline = false, this.maxLength = 200, this.required = false});
+  const FormFieldSpec(this.name, this.label,
+      {this.initial, this.multiline = false, this.maxLength = 200, this.required = false, this.obscure = false});
 
   final String name;
   final String label;
@@ -22,6 +23,7 @@ class FormFieldSpec {
   final bool multiline;
   final int maxLength;
   final bool required;
+  final bool obscure;
 }
 
 Future<Map<String, String>?> showFormDialog(
@@ -50,6 +52,7 @@ Future<Map<String, String>?> showFormDialog(
                     controller: controllers[f.name],
                     autofocus: f == fields.first,
                     maxLength: f.maxLength,
+                    obscureText: f.obscure,
                     minLines: f.multiline ? 3 : 1,
                     maxLines: f.multiline ? 5 : 1,
                     decoration: InputDecoration(labelText: f.label, counterText: ''),

@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -44,7 +45,7 @@ class _UploadPageState extends State<UploadPage> {
       if (item.status == _Status.uploading) item.cancel.cancel();
       item.title.dispose();
     }
-    WakelockPlus.disable();
+    _keepScreenOn(false);
     super.dispose();
   }
 
@@ -63,7 +64,7 @@ class _UploadPageState extends State<UploadPage> {
     if (_running) return;
     _running = true;
     final api = context.api;
-    await WakelockPlus.enable(); // keep the screen on so the upload isn't killed
+    _keepScreenOn(true); // keep the screen on so the upload isn't killed
 
     while (mounted) {
       final item = _items.where((i) => i.status == _Status.queued).firstOrNull;
@@ -92,7 +93,7 @@ class _UploadPageState extends State<UploadPage> {
     }
 
     _running = false;
-    await WakelockPlus.disable();
+    _keepScreenOn(false);
   }
 
   @override
@@ -198,4 +199,12 @@ class _UploadTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Keeps the phone screen on. Skipped on the web build, where browsers often refuse it (e.g. plain HTTP).
+Future<void> _keepScreenOn(bool on) async {
+  if (kIsWeb) return;
+  try {
+    on ? await WakelockPlus.enable() : await WakelockPlus.disable();
+  } catch (_) {}
 }

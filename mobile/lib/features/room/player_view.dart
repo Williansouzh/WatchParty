@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/format.dart';
+import '../../core/models.dart';
 import '../../core/theme.dart';
 import 'room_controller.dart';
 
@@ -153,6 +154,12 @@ class _PlayerViewState extends State<PlayerView> {
                                   ),
                                 ),
                                 Text(formatClock(duration), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                if (room.subtitles.isNotEmpty)
+                                  IconButton(
+                                    tooltip: 'Legendas',
+                                    icon: Icon(room.subtitle == null ? Icons.closed_caption_off_outlined : Icons.closed_caption),
+                                    onPressed: () => _chooseSubtitle(context),
+                                  ),
                                 IconButton(
                                   tooltip: widget.fullscreen ? 'Sair da tela cheia' : 'Tela cheia',
                                   icon: Icon(widget.fullscreen ? Icons.fullscreen_exit : Icons.fullscreen),
@@ -166,6 +173,15 @@ class _PlayerViewState extends State<PlayerView> {
                     ),
                   ),
                 ),
+                ClosedCaption(text: value.caption.text, textStyle: const TextStyle(fontSize: 16, color: Colors.white)),
+                if (room.waitingFor.isNotEmpty)
+                  Positioned(
+                    top: 10,
+                    left: 0,
+                    right: 0,
+                    child: Center(child: _WaitingBanner(names: room.waitingFor)),
+                  ),
+                Positioned.fill(child: _ReactionLayer(stream: room.reactionStream)),
                 if (room.needsTap)
                   Positioned.fill(
                     child: GestureDetector(
@@ -190,6 +206,38 @@ class _PlayerViewState extends State<PlayerView> {
 
     final player = ColoredBox(color: Colors.black, child: content);
     return widget.fullscreen ? player : AspectRatio(aspectRatio: 16 / 9, child: player);
+  }
+
+  Future<void> _chooseSubtitle(BuildContext context) async {
+    final room = widget.room;
+    final choice = await showModalBottomSheet<Object>(
+      context: context,
+      useSafeArea: true,
+      builder: (context) => ListView(
+        shrinkWrap: true,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text('Legendas', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+          ),
+          ListTile(
+            leading: Icon(room.subtitle == null ? Icons.radio_button_checked : Icons.radio_button_off),
+            title: const Text('Desligadas'),
+            onTap: () => Navigator.pop(context, 'off'),
+          ),
+          for (final s in room.subtitles)
+            ListTile(
+              leading: Icon(room.subtitle?.id == s.id ? Icons.radio_button_checked : Icons.radio_button_off),
+              title: Text(s.label),
+              subtitle: s.language == null ? null : Text(s.language!),
+              onTap: () => Navigator.pop(context, s),
+            ),
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    await room.selectSubtitle(choice is SubtitleInfo ? choice : null);
   }
 
   void _act(Future<void> Function() action) {
@@ -263,6 +311,97 @@ class _FullscreenPlayerState extends State<_FullscreenPlayer> {
           }
           return PlayerView(room: widget.room, fullscreen: true);
         },
+      ),
+    );
+  }
+}
+
+class _WaitingBanner extends StatelessWidget {
+  const _WaitingBanner({required this.names});
+
+  final List<String> names;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.8), borderRadius: BorderRadius.circular(20)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 10),
+          Text('Esperando ${names.join(', ')} carregar…', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Emoji reactions floating up over the video.
+class _ReactionLayer extends StatefulWidget {
+  const _ReactionLayer({required this.stream});
+
+  final Stream<Reaction> stream;
+
+  @override
+  State<_ReactionLayer> createState() => _ReactionLayerState();
+}
+
+class _ReactionLayerState extends State<_ReactionLayer> {
+  final _items = <(Reaction, double)>[];
+  StreamSubscription<Reaction>? _subscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscription = widget.stream.listen((r) {
+      if (!mounted) return;
+      final left = 0.1 + (r.key.hashCode % 75) / 100;
+      setState(() => _items.add((r, left)));
+      Future.delayed(const Duration(milliseconds: 2600), () {
+        if (mounted) setState(() => _items.removeWhere((i) => i.$1 == r));
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: LayoutBuilder(
+        builder: (context, constraints) => Stack(
+          children: [
+            for (final (reaction, left) in _items)
+              Positioned(
+                key: reaction.key,
+                left: constraints.maxWidth * left,
+                bottom: 40,
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: 1),
+                  duration: const Duration(milliseconds: 2500),
+                  curve: Curves.easeOut,
+                  builder: (_, t, child) => Opacity(
+                    opacity: t < 0.15 ? t / 0.15 : (1 - t).clamp(0, 1).toDouble(),
+                    child: Transform.translate(offset: Offset(0, -constraints.maxHeight * 0.7 * t), child: child),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(reaction.emoji, style: const TextStyle(fontSize: 34)),
+                      Text(reaction.displayName,
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, shadows: [Shadow(blurRadius: 4)])),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -48,7 +49,7 @@ class _VideoPageState extends State<VideoPage> {
 
       // Keep checking while the server converts the file.
       _poll?.cancel();
-      if (video.isProcessing) _poll = Timer(const Duration(seconds: 4), _load);
+      if (video.isProcessing) _poll = Timer(const Duration(milliseconds: 2500), _load);
     } catch (e) {
       if (mounted) setState(() => _error = e);
     }
@@ -82,6 +83,33 @@ class _VideoPageState extends State<VideoPage> {
     }
   }
 
+  Future<void> _uploadSubtitle(Video v) async {
+    final files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['srt', 'vtt']);
+    if (files.isEmpty || !mounted) return;
+    final file = files.first;
+    final values = await showFormDialog(context, title: 'Nome da legenda', submitLabel: 'Enviar', fields: [
+      FormFieldSpec('label', 'Nome (ex: Português)', initial: file.name.replaceFirst(RegExp(r'\.[^.]+$'), ''), maxLength: 60, required: true),
+      const FormFieldSpec('language', 'Idioma (ex: pt, en)', maxLength: 16),
+    ]);
+    if (values == null || !mounted) return;
+    try {
+      await context.api.uploadSubtitle(v.id, file: file, label: values['label']!, language: values['language']);
+      if (mounted) showToast(context, 'Legenda adicionada');
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) showToast(context, e.message, error: true);
+    }
+  }
+
+  Future<void> _deleteSubtitle(Video v, SubtitleInfo sub) async {
+    try {
+      await context.api.deleteSubtitle(v.id, sub.id);
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) showToast(context, e.message, error: true);
+    }
+  }
+
   Future<void> _delete(Video v) async {
     if (!await confirmDialog(context, 'Excluir vídeo?', '"${v.title}" será apagado para todo mundo.')) return;
     if (!mounted) return;
@@ -90,7 +118,7 @@ class _VideoPageState extends State<VideoPage> {
       notifyLibraryChanged();
       if (mounted) {
         showToast(context, 'Vídeo excluído');
-        context.pop();
+        context.canPop() ? context.pop() : context.go('/library');
       }
     } on ApiException catch (e) {
       if (mounted) showToast(context, e.message, error: true);
@@ -144,10 +172,11 @@ class _VideoPageState extends State<VideoPage> {
       ],
       children: [
         if (v.isProcessing)
-          const _Banner(
+          _Banner(
             loading: true,
-            title: 'Preparando o vídeo…',
+            title: 'Preparando o vídeo…${v.processingProgress == null ? '' : ' ${(v.processingProgress! * 100).round()}%'}',
             message: 'Estamos convertendo para funcionar em qualquer celular. Filmes grandes podem levar alguns minutos.',
+            progress: v.processingProgress,
           ),
         if (v.isFailed)
           _Banner(title: 'Não foi possível converter esse vídeo.', message: '${v.failureReason ?? ''} Tente outro arquivo.', error: true),
@@ -163,18 +192,55 @@ class _VideoPageState extends State<VideoPage> {
             child: Text(v.description!, style: const TextStyle(color: AppColors.textSub, height: 1.5)),
           ),
         ],
+        if (v.isReady) ...[
+          const SectionHeader('Legendas'),
+          if (v.subtitles.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Text('Nenhuma legenda ainda. As que vêm dentro do arquivo (MKV) aparecem aqui sozinhas.',
+                  style: TextStyle(color: AppColors.textSub)),
+            ),
+          for (final sub in v.subtitles)
+            ListTile(
+              leading: const Icon(Icons.closed_caption_outlined),
+              title: Text(sub.label),
+              subtitle: sub.language == null ? null : Text(sub.language!),
+              trailing: sub.uploadedById == context.session.user!.id || isOwner
+                  ? IconButton(
+                      tooltip: 'Apagar legenda',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => _deleteSubtitle(v, sub),
+                    )
+                  : null,
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: OutlinedButton.icon(
+              onPressed: () => _uploadSubtitle(v),
+              icon: const Icon(Icons.upload_file),
+              label: const Text('Enviar legenda (.srt ou .vtt)'),
+            ),
+          ),
+          if (v.hasHls)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: Text('✓ Disponível em várias qualidades: o player se ajusta à internet de cada um.',
+                  style: TextStyle(color: AppColors.textSub, fontSize: 13)),
+            ),
+        ],
       ],
     );
   }
 }
 
 class _Banner extends StatelessWidget {
-  const _Banner({required this.title, required this.message, this.loading = false, this.error = false});
+  const _Banner({required this.title, required this.message, this.loading = false, this.error = false, this.progress});
 
   final String title;
   final String message;
   final bool loading;
   final bool error;
+  final double? progress;
 
   @override
   Widget build(BuildContext context) {
@@ -195,6 +261,13 @@ class _Banner extends StatelessWidget {
                 Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 4),
                 Text(message, style: const TextStyle(color: AppColors.textSub)),
+                if (progress != null) ...[
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: LinearProgressIndicator(value: progress, minHeight: 6, backgroundColor: const Color(0xFF4D4D4D)),
+                  ),
+                ],
               ],
             ),
           ),

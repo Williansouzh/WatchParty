@@ -1,6 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/api.dart';
 import '../../core/app_scope.dart';
 import '../../core/format.dart';
 import '../../core/models.dart';
@@ -82,6 +86,7 @@ class _HomePageState extends State<HomePage> {
                   padding: const EdgeInsets.only(bottom: 120),
                   children: [
                     header,
+                    const _UpdateBanner(),
                     _Shortcuts(playlists: playlists),
                     if (shownRooms.isNotEmpty) ...[
                       SectionHeader(live.isNotEmpty ? 'Rolando agora' : 'Suas salas', onMore: () => context.go('/rooms')),
@@ -125,11 +130,16 @@ class _Header extends StatelessWidget {
           PopupMenuButton<String>(
             tooltip: 'Conta',
             color: const Color(0xFF282828),
-            onSelected: (v) {
-              if (v == 'logout') context.session.signOut();
+            onSelected: (v) => switch (v) {
+              'password' => _changePassword(context),
+              'everywhere' => _logoutEverywhere(context),
+              _ => context.session.signOut(),
             },
             itemBuilder: (_) => [
               PopupMenuItem(enabled: false, child: Text('${user.displayName} (@${user.userName})')),
+              const PopupMenuItem(value: 'password', child: Row(children: [Icon(Icons.password), SizedBox(width: 12), Text('Trocar senha')])),
+              const PopupMenuItem(
+                  value: 'everywhere', child: Row(children: [Icon(Icons.devices), SizedBox(width: 12), Text('Sair de todos os aparelhos')])),
               const PopupMenuItem(value: 'logout', child: Row(children: [Icon(Icons.logout), SizedBox(width: 12), Text('Sair')])),
             ],
             child: Avatar(name: user.displayName, color: user.avatarColor, size: 34),
@@ -138,6 +148,91 @@ class _Header extends StatelessWidget {
           Expanded(
             child: Text('${greeting()}, ${user.displayName.split(' ').first}',
                 style: Theme.of(context).textTheme.headlineMedium, overflow: TextOverflow.ellipsis),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> _changePassword(BuildContext context) async {
+  final values = await showFormDialog(context, title: 'Trocar senha', submitLabel: 'Trocar', fields: const [
+    FormFieldSpec('current', 'Senha atual', required: true, maxLength: 128, obscure: true),
+    FormFieldSpec('next', 'Nova senha (mínimo 6)', required: true, maxLength: 128, obscure: true),
+  ]);
+  if (values == null || !context.mounted) return;
+  try {
+    final token = await context.api.changePassword(values['current']!, values['next']!);
+    if (!context.mounted) return;
+    await context.session.replaceToken(token);
+    if (context.mounted) showToast(context, 'Senha trocada. Os outros aparelhos foram desconectados.');
+  } on ApiException catch (e) {
+    if (context.mounted) showToast(context, e.message, error: true);
+  }
+}
+
+Future<void> _logoutEverywhere(BuildContext context) async {
+  if (!await confirmDialog(context, 'Sair de todos os aparelhos?',
+      'Você vai precisar entrar de novo em todos os celulares e computadores, inclusive este.',
+      confirmLabel: 'Sair de todos')) {
+    return;
+  }
+  if (!context.mounted) return;
+  final session = context.session;
+  await context.api.logoutEverywhere().catchError((_) {});
+  await session.signOut();
+}
+
+/// Shown when the server announces a newer Android build than the one installed.
+class _UpdateBanner extends StatefulWidget {
+  const _UpdateBanner();
+
+  @override
+  State<_UpdateBanner> createState() => _UpdateBannerState();
+}
+
+class _UpdateBannerState extends State<_UpdateBanner> {
+  ({String? version, String url})? _update;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    _check();
+  }
+
+  Future<void> _check() async {
+    try {
+      final info = await context.api.appInfo();
+      final package = await PackageInfo.fromPlatform();
+      // Split APKs add 1000 × ABI to the version code; the build number is what's left.
+      final installed = (int.tryParse(package.buildNumber) ?? 0) % 1000;
+      if (info.latestBuild > installed && info.downloadUrl != null && mounted) {
+        setState(() => _update = (version: info.latestVersion, url: info.downloadUrl!));
+      }
+    } catch (_) {/* no update info is fine */}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final update = _update;
+    if (update == null) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+      decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(8)),
+      child: Row(
+        children: [
+          const Icon(Icons.system_update, color: Colors.black),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text('Nova versão${update.version == null ? '' : ' ${update.version}'} disponível',
+                style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w700)),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white),
+            onPressed: () => launchUrl(Uri.parse(update.url), mode: LaunchMode.externalApplication),
+            child: const Text('Baixar'),
           ),
         ],
       ),

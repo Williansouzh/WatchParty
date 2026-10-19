@@ -92,6 +92,27 @@ class Api {
         (d) => AppUser.fromJson(asJson(d)),
       );
 
+  /// Returns a new token for this device; every other device is signed out.
+  Future<String> changePassword(String currentPassword, String newPassword) => _call(
+        () => _dio.post('/api/auth/password', data: {'currentPassword': currentPassword, 'newPassword': newPassword}),
+        (d) => asJson(d)['accessToken'] as String,
+      );
+
+  Future<void> logoutEverywhere() => _call(() => _dio.post('/api/auth/logout-everywhere'), (_) {});
+
+  /// Newest Android build announced by the server.
+  Future<({int latestBuild, String? latestVersion, String? downloadUrl})> appInfo() => _call(
+        () => _dio.get('/api/app'),
+        (d) {
+          final j = asJson(d);
+          return (
+            latestBuild: (j['latestBuild'] as num?)?.toInt() ?? 0,
+            latestVersion: j['latestVersion'] as String?,
+            downloadUrl: j['downloadUrl'] as String?,
+          );
+        },
+      );
+
   Future<List<Json>> iceServers() => _call(
         () => _dio.get('/api/config'),
         (d) => (asJson(d)['iceServers'] as List).map((e) {
@@ -148,6 +169,24 @@ class Api {
     );
   }
 
+  Future<SubtitleInfo> uploadSubtitle(String videoId, {required PlatformFile file, required String label, String? language}) async {
+    final bytes = await file.readAsBytes();
+    final form = FormData()
+      ..fields.add(MapEntry('label', label))
+      ..fields.add(MapEntry('language', language ?? ''))
+      ..files.add(MapEntry('file', MultipartFile.fromBytes(bytes, filename: file.name)));
+    return _call(() => _dio.post('/api/videos/$videoId/subtitles', data: form), (d) => SubtitleInfo.fromJson(asJson(d)));
+  }
+
+  Future<void> deleteSubtitle(String videoId, String subtitleId) =>
+      _call(() => _dio.delete('/api/videos/$videoId/subtitles/$subtitleId'), (_) {});
+
+  /// WebVTT text of a subtitle track.
+  Future<String> subtitleText(String videoId, String subtitleId) => _call(
+        () => _dio.get('/api/videos/$videoId/subtitles/$subtitleId', options: Options(responseType: ResponseType.plain)),
+        (d) => d as String,
+      );
+
   // ---------- Playlists ----------
 
   Future<List<PlaylistSummary>> playlists() =>
@@ -176,8 +215,9 @@ class Api {
 
   Future<List<RoomSummary>> rooms() => _call(() => _dio.get('/api/rooms'), (d) => _list(d, RoomSummary.fromJson));
 
-  Future<String> createRoom(String name, {String? videoId}) => _call(
-        () => _dio.post('/api/rooms', data: {'name': name, 'videoId': videoId}),
+  /// With [playlistId] the room starts a "maratona": first video now, the rest queued.
+  Future<String> createRoom(String name, {String? videoId, String? playlistId}) => _call(
+        () => _dio.post('/api/rooms', data: {'name': name, 'videoId': videoId, 'playlistId': playlistId}),
         (d) => asJson(d)['code'] as String,
       );
 
