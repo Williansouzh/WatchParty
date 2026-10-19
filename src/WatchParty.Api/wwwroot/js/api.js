@@ -78,6 +78,8 @@ export const api = {
   login: (userName, password) => post('/api/auth/login', { userName, password }),
   register: (data) => post('/api/auth/register', data),
   logout: () => post('/api/auth/logout'),
+  logoutEverywhere: () => post('/api/auth/logout-everywhere'),
+  changePassword: (currentPassword, newPassword) => post('/api/auth/password', { currentPassword, newPassword }),
   config: () => get('/api/config'),
 
   videos: {
@@ -88,6 +90,19 @@ export const api = {
     toggleFavorite: (id) => post(`/api/videos/${id}/favorite`),
     upload,
     streamUrl: (id) => `/api/videos/${id}/stream`,
+    hlsUrl: (id) => `/api/videos/${id}/hls/master.m3u8`,
+    subtitleUrl: (id, subtitleId) => `/api/videos/${id}/subtitles/${subtitleId}`,
+    uploadSubtitle: async (id, file, label, language) => {
+      const form = new FormData();
+      form.append('label', label);
+      if (language) form.append('language', language);
+      form.append('file', file, file.name);
+      const response = await fetch(`/api/videos/${id}/subtitles`, { method: 'POST', body: form, credentials: 'same-origin' });
+      const data = safeJson(await response.text());
+      if (!response.ok) throw new ApiError(response.status, data?.title || 'Falha ao enviar a legenda.', data ?? {});
+      return data;
+    },
+    removeSubtitle: (id, subtitleId) => del(`/api/videos/${id}/subtitles/${subtitleId}`),
     thumbUrl: (id) => `/api/videos/${id}/thumbnail`,
   },
 

@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import {
   colorFor, confirmDialog, esc, formDialog, formatDuration, icon, openMenu, pickVideo,
-  playlistCover, setHero, startRoomForVideo, toast,
+  playlistCover, setHero, toast,
 } from '../ui.js';
 import { bindTrackTable, trackTable } from './tracks.js';
 
@@ -42,7 +42,13 @@ export async function render(root, ctx) {
           : '<div class="empty-state"><h3>Vamos encher essa playlist</h3><p>Qualquer amigo pode adicionar vídeos aqui.</p></div>'}
       </div>`;
 
-    root.querySelector('[data-play]')?.addEventListener('click', () => startRoomForVideo(firstReady.id, firstReady.title));
+    // Starts a "maratona": first video now, the rest queued in the room.
+    root.querySelector('[data-play]')?.addEventListener('click', async () => {
+      try {
+        const { code } = await api.rooms.create({ name: `Maratona: ${playlist.name}`.slice(0, 80), playlistId: playlist.id });
+        location.hash = `#/room/${code}`;
+      } catch (err) { toast(err.message, 'error'); }
+    });
     root.querySelector('[data-add]').addEventListener('click', async () => {
       const video = await pickVideo('Adicionar à playlist');
       if (!video) return;

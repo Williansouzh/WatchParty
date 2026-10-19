@@ -1,6 +1,7 @@
 // Entry point: auth bootstrap, hash router and the Spotify-like shell (sidebar, top bar, bottom nav).
 import { api } from './api.js';
-import { avatar, esc, icon, openMenu, playlistCover, toast, formDialog } from './ui.js';
+import { avatar, confirmDialog, esc, icon, openMenu, playlistCover, toast, formDialog } from './ui.js';
+import { enableNotifications, startLobby, stopLobby } from './lobby.js';
 import * as auth from './views/auth.js';
 import * as home from './views/home.js';
 import * as search from './views/search.js';
@@ -83,6 +84,7 @@ async function navigate() {
     if (token === renderToken) cleanup = typeof result === 'function' ? result : null;
     else if (typeof result === 'function') result();
   } catch (err) {
+    if (err.status === 401) return; // session ended: auth:expired already sent the user to the login screen
     console.error(err);
     if (token === renderToken) view.innerHTML = `<div class="page empty-state"><h3>Ops!</h3><p>${esc(err.message)}</p></div>`;
   }
@@ -138,8 +140,13 @@ function ensureShell() {
 
   app.querySelector('[data-user-menu]').addEventListener('click', (e) => openMenu(e.currentTarget, [
     { label: `${u.displayName} (@${u.userName})`, icon: 'group', onClick: () => {} },
+    { label: 'Avisar quando a galera assistir', icon: 'live', onClick: enableNotifications },
+    { label: 'Trocar senha', icon: 'edit', onClick: changePassword },
+    { label: 'Sair de todos os aparelhos', icon: 'logout', onClick: logoutEverywhere },
     { label: 'Sair', icon: 'logout', onClick: logout },
   ]));
+
+  startLobby(u);
   app.querySelector('[data-new-playlist]').addEventListener('click', createPlaylist);
 
   renderSidebarLibrary();
@@ -189,8 +196,27 @@ function onAuthenticated(user) {
   location.hash = returnTo && !returnTo.startsWith('#/login') && !returnTo.startsWith('#/register') ? returnTo : '#/';
 }
 
+async function changePassword() {
+  const values = await formDialog('Trocar senha', [
+    { name: 'current', label: 'Senha atual', type: 'password', required: true, max: 128 },
+    { name: 'next', label: 'Nova senha (mínimo 6 caracteres)', type: 'password', required: true, max: 128 },
+  ], 'Trocar');
+  if (!values) return;
+  try {
+    await api.changePassword(values.current, values.next);
+    toast('Senha trocada. Os outros aparelhos foram desconectados.', 'ok');
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+async function logoutEverywhere() {
+  if (!await confirmDialog('Sair de todos os aparelhos?', 'Você vai precisar entrar de novo em todos os celulares e computadores, inclusive este.', 'Sair de todos')) return;
+  await api.logoutEverywhere().catch(() => {});
+  await logout();
+}
+
 async function logout() {
   if (cleanup) { await cleanup(); cleanup = null; }
+  await stopLobby();
   await api.logout().catch(() => {});
   state.user = null;
   app.innerHTML = '';
@@ -201,6 +227,7 @@ window.addEventListener('library:changed', renderSidebarLibrary);
 window.addEventListener('auth:expired', () => {
   if (!state.user) return;
   state.user = null;
+  stopLobby();
   app.innerHTML = '';
   sessionStorage.setItem('returnTo', location.hash);
   location.hash = '#/login';

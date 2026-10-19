@@ -1,12 +1,15 @@
-// The watch party itself: synced player, text chat, people list and voice call.
+// The watch party itself: synced player (MP4 or adaptive HLS), subtitles, queue, waiting for whoever is
+// loading, reactions, text chat, people list and voice call.
 import { api } from '../api.js';
 import {
-  confirmDialog, copyText, esc, formatClock, icon, pickVideo, thumb, timeOfDay, toast,
+  confirmDialog, copyText, esc, formatClock, icon, openModal, pickVideo, playlistCover, thumb, timeOfDay, toast,
 } from '../ui.js';
 import { PlaybackSync } from '../room/sync.js';
 import { VoiceChat } from '../room/voice.js';
 
 const ACTION_TEXT = { Play: 'deu play', Pause: 'pausou', Seek: 'pulou para' };
+const REACTIONS = ['😂', '😍', '🔥', '😱', '👏', '😭', '👍', '🍿'];
+const ANDROID_PACKAGE = 'com.watchparty.watchparty';
 
 export async function render(root, ctx) {
   const code = ctx.params.code.toUpperCase();
@@ -22,13 +25,19 @@ export async function render(root, ctx) {
   const participants = new Map();
   const speaking = new Set();
   let room = null;
+  let queue = [];
+  let waitingFor = [];
   let myConnectionId = null;
   let sync = null;
   let voice = null;
+  let hls = null;
   let disposed = false;
   let activeTab = 'chat';
   let unread = 0;
   let el = {};
+
+  const isHost = () => room?.hostId === ctx.user.id;
+  const canControl = () => !room?.hostOnlyControl || isHost();
 
   // ---------- Hub events ----------
   hub.on('ParticipantJoined', (p) => {
@@ -53,12 +62,29 @@ export async function render(root, ctx) {
   });
   hub.on('PlaybackChanged', (e) => {
     sync?.apply(e.state);
-    systemMessage(`${e.byDisplayName} ${ACTION_TEXT[e.action]} ${formatClock(e.state.positionSeconds)}`);
+    if (e.reason === 'buffering') systemMessage('⏸ Pausado para esperar quem está carregando');
+    else if (e.reason === 'resumed') systemMessage('▶ Todo mundo pronto, continuando');
+    else systemMessage(`${e.byDisplayName} ${ACTION_TEXT[e.action]} ${formatClock(e.state.positionSeconds)}`);
   });
   hub.on('VideoChanged', (e) => {
+    queue = e.queue;
     loadVideo(e.video, e.state);
-    systemMessage(`${e.byDisplayName} colocou "${e.video.title}"`);
+    renderQueue();
+    systemMessage(e.reason === 'next' ? `▶ Próximo da fila: "${e.video.title}"` : `${e.byDisplayName} colocou "${e.video.title}"`);
   });
+  hub.on('VideoRemoved', (e) => {
+    loadVideo(null, e.state);
+    systemMessage('O vídeo foi apagado da biblioteca por quem enviou.');
+    toast('O vídeo desta sala foi apagado.', 'error');
+  });
+  hub.on('QueueChanged', (items) => { queue = items; renderQueue(); });
+  hub.on('RoomSettingsChanged', (s) => {
+    room.hostOnlyControl = s.hostOnlyControl;
+    systemMessage(s.hostOnlyControl ? `🔒 ${s.byDisplayName} deixou só o anfitrião controlar o vídeo` : `🔓 Todo mundo pode controlar o vídeo`);
+    renderControls();
+  });
+  hub.on('BufferingChanged', (names) => { waitingFor = names; renderWaiting(); });
+  hub.on('Reaction', (r) => showReaction(r.emoji, r.displayName));
   hub.on('ChatMessage', (m) => {
     appendMessage(m);
     if (activeTab !== 'chat' || document.hidden) { unread++; renderUnread(); }
@@ -106,6 +132,8 @@ export async function render(root, ctx) {
   sync = new PlaybackSync(el.player, hub, {
     onAutoplayBlocked: () => el.gesture.classList.remove('hidden'),
     onError: (err) => toast(cleanHubError(err), 'error'),
+    // Every player reports the end; the server advances the queue only once.
+    onEnded: () => room.currentVideo && hub.invoke('VideoEnded', room.currentVideo.id).catch(() => {}),
   });
   applyJoin(joined);
   sync.calibrate(joined.serverTimeMs).catch(() => {});
@@ -118,6 +146,8 @@ export async function render(root, ctx) {
 
   function applyJoin(response) {
     room = response.room;
+    queue = room.queue;
+    waitingFor = response.waitingFor;
     myConnectionId = response.connectionId;
     participants.clear();
     response.participants.forEach((p) => participants.set(p.connectionId, p));
@@ -126,35 +156,46 @@ export async function render(root, ctx) {
     systemMessage('Você entrou. Tudo que alguém fizer no player acontece pra todo mundo.');
     loadVideo(room.currentVideo, room.playback);
     renderPeople();
+    renderQueue();
+    renderControls();
+    renderWaiting();
   }
 
   // ---------- Layout ----------
   function drawLayout() {
-    const isHost = room.hostId === ctx.user.id;
+    const android = /Android/i.test(navigator.userAgent);
     root.innerHTML = `
       <div class="room">
         <section class="room-stage">
-          <div class="player-wrap">
+          ${android ? `<div class="app-banner">${icon('play')}Assista pelo app
+            <a href="intent://app/room/${esc(room.code)}#Intent;scheme=watchparty;package=${ANDROID_PACKAGE};end">Abrir</a></div>` : ''}
+          <div class="player-wrap" data-player-wrap>
             <video playsinline controls preload="auto"></video>
             <div class="player-empty hidden" data-empty></div>
+            <div class="waiting-banner hidden" data-waiting></div>
             <button class="gesture-overlay hidden" data-gesture><span>${icon('play')}Toque para entrar na sessão</span></button>
           </div>
           <div class="room-info">
             <div>
               <h1>${esc(room.name)}</h1>
-              <p><span data-video-title></span> • Código <span class="code-pill">${esc(room.code)}</span></p>
+              <p><span data-video-title></span> • Código <span class="code-pill">${esc(room.code)}</span> <span data-lock></span></p>
             </div>
             <div class="actions">
               <button class="btn btn-sm btn-primary" data-invite>${icon('link')}Convidar</button>
               <button class="btn btn-sm btn-outline" data-change>${icon('swap')}Trocar vídeo</button>
-              ${isHost ? `<button class="btn btn-sm btn-danger" data-delete>${icon('trash')}Encerrar</button>` : ''}
+              ${isHost() ? `<button class="btn btn-sm btn-danger" data-delete>${icon('trash')}Encerrar</button>` : ''}
             </div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div class="reaction-bar" data-reactions>${REACTIONS.map((r) => `<button data-reaction="${r}" title="Reagir">${r}</button>`).join('')}</div>
+            ${isHost() ? `<label class="switch"><input type="checkbox" data-host-only> Só eu controlo o vídeo</label>` : ''}
           </div>
         </section>
         <aside class="room-side">
           <div class="tabs">
             <button class="chip active" data-tab="chat">${icon('chat')}&nbsp;Chat<span class="unread hidden" data-unread></span></button>
             <button class="chip" data-tab="people">${icon('group')}&nbsp;<span data-people-count>Pessoas</span></button>
+            <button class="chip" data-tab="queue">${icon('queue')}&nbsp;<span data-queue-count>Fila</span></button>
           </div>
           <div class="tab-body" data-panel="chat">
             <div class="chat-list" data-chat></div>
@@ -164,18 +205,32 @@ export async function render(root, ctx) {
             </form>
           </div>
           <div class="tab-body hidden" data-panel="people"><div class="people" data-people></div></div>
+          <div class="tab-body hidden" data-panel="queue">
+            <div class="queue-actions">
+              <button class="btn btn-sm btn-outline" data-queue-add>${icon('add')}Vídeo</button>
+              <button class="btn btn-sm btn-outline" data-queue-playlist>${icon('queue')}Playlist</button>
+              <button class="btn btn-sm btn-primary" data-queue-next>${icon('forward')}Próximo</button>
+            </div>
+            <div class="queue" data-queue></div>
+          </div>
         </aside>
       </div>`;
 
     el = {
       player: root.querySelector('video'),
+      wrap: root.querySelector('[data-player-wrap]'),
       empty: root.querySelector('[data-empty]'),
+      waiting: root.querySelector('[data-waiting]'),
       gesture: root.querySelector('[data-gesture]'),
       videoTitle: root.querySelector('[data-video-title]'),
+      lock: root.querySelector('[data-lock]'),
       chat: root.querySelector('[data-chat]'),
       people: root.querySelector('[data-people]'),
       peopleCount: root.querySelector('[data-people-count]'),
+      queue: root.querySelector('[data-queue]'),
+      queueCount: root.querySelector('[data-queue-count]'),
       unread: root.querySelector('[data-unread]'),
+      hostOnly: root.querySelector('[data-host-only]'),
       bar: document.getElementById('player-bar'),
     };
 
@@ -200,6 +255,18 @@ export async function render(root, ctx) {
       try { await hub.invoke('SendMessage', content); } catch (err) { input.value = content; toast(cleanHubError(err), 'error'); }
     });
 
+    root.querySelector('[data-reactions]').addEventListener('click', (e) => {
+      const button = e.target.closest('[data-reaction]');
+      if (button) hub.invoke('SendReaction', button.dataset.reaction).catch((err) => toast(cleanHubError(err), 'error'));
+    });
+
+    el.hostOnly?.addEventListener('change', () => {
+      hub.invoke('SetHostOnlyControl', el.hostOnly.checked).catch((err) => {
+        el.hostOnly.checked = !el.hostOnly.checked;
+        toast(cleanHubError(err), 'error');
+      });
+    });
+
     root.querySelector('[data-invite]').addEventListener('click', async () => {
       const url = `${location.origin}/#/room/${room.code}`;
       if (navigator.share && matchMedia('(pointer: coarse)').matches) {
@@ -215,8 +282,42 @@ export async function render(root, ctx) {
       if (!video) return;
       try {
         const changed = await hub.invoke('ChangeVideo', video.id);
+        queue = changed.queue;
         loadVideo(changed.video, changed.playback);
+        renderQueue();
         systemMessage(`Você colocou "${changed.video.title}"`);
+      } catch (err) { toast(cleanHubError(err), 'error'); }
+    });
+
+    root.querySelector('[data-queue-add]').addEventListener('click', async () => {
+      const video = await pickVideo('Adicionar à fila');
+      if (!video) return;
+      try {
+        queue = await hub.invoke('AddToQueue', video.id);
+        renderQueue();
+        toast(`"${video.title}" entrou na fila`, 'ok');
+      } catch (err) { toast(cleanHubError(err), 'error'); }
+    });
+
+    root.querySelector('[data-queue-playlist]').addEventListener('click', async () => {
+      const playlist = await pickPlaylist();
+      if (!playlist) return;
+      try {
+        queue = await hub.invoke('AddPlaylistToQueue', playlist.id);
+        renderQueue();
+        toast(`Playlist "${playlist.name}" adicionada à fila`, 'ok');
+      } catch (err) { toast(cleanHubError(err), 'error'); }
+    });
+
+    root.querySelector('[data-queue-next]').addEventListener('click', () =>
+      hub.invoke('PlayNext').catch((err) => toast(cleanHubError(err), 'error')));
+
+    el.queue.addEventListener('click', async (e) => {
+      const remove = e.target.closest('[data-queue-remove]');
+      if (!remove) return;
+      try {
+        queue = await hub.invoke('RemoveFromQueue', remove.dataset.queueRemove);
+        renderQueue();
       } catch (err) { toast(cleanHubError(err), 'error'); }
     });
 
@@ -236,13 +337,16 @@ export async function render(root, ctx) {
     if (!document.hidden && sync?.state) sync.apply(sync.state);
   }
 
-  function loadVideo(video, state) {
+  // ---------- Player ----------
+  async function loadVideo(video, state) {
     room.currentVideo = video;
     const player = el.player;
     if (!video || video.status !== 'Ready') {
+      destroyHls();
       player.pause();
       player.removeAttribute('src');
       player.removeAttribute('data-video-id');
+      player.querySelectorAll('track').forEach((t) => t.remove());
       player.load();
       el.empty.innerHTML = video
         ? '<div><span class="spinner"></span><p>Esse vídeo ainda está sendo preparado…</p></div>'
@@ -260,11 +364,119 @@ export async function render(root, ctx) {
     if (player.dataset.videoId !== video.id) {
       player.dataset.videoId = video.id;
       player.poster = video.hasThumbnail ? api.videos.thumbUrl(video.id) : '';
-      player.src = api.videos.streamUrl(video.id);
-      player.load();
+      sync.videoLoaded();
+      await attachSource(video);
+      setSubtitles(video);
     }
     sync.apply(state); // waits for metadata if needed
     renderVoiceBar();
+  }
+
+  /** Adaptive HLS when available (hls.js, or natively on Safari/iOS); otherwise the MP4. */
+  async function attachSource(video) {
+    const player = el.player;
+    destroyHls();
+    if (video.hasHls) {
+      if (player.canPlayType('application/vnd.apple.mpegurl')) {
+        player.src = api.videos.hlsUrl(video.id);
+        return;
+      }
+      const Hls = await loadHlsJs();
+      if (Hls?.isSupported()) {
+        hls = new Hls({ capLevelToPlayerSize: true });
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (data.fatal) { destroyHls(); player.src = api.videos.streamUrl(video.id); player.load(); }
+        });
+        hls.loadSource(api.videos.hlsUrl(video.id));
+        hls.attachMedia(player);
+        return;
+      }
+    }
+    player.src = api.videos.streamUrl(video.id);
+    player.load();
+  }
+
+  function destroyHls() {
+    hls?.destroy();
+    hls = null;
+  }
+
+  /** Subtitle tracks are per person (not synced): everyone picks theirs in the player's CC menu. */
+  function setSubtitles(video) {
+    el.player.querySelectorAll('track').forEach((t) => t.remove());
+    for (const s of video.subtitles ?? []) {
+      const track = Object.assign(document.createElement('track'), {
+        kind: 'subtitles', label: s.label, srclang: s.language ?? '', src: api.videos.subtitleUrl(video.id, s.id),
+      });
+      el.player.appendChild(track);
+    }
+  }
+
+  function renderWaiting() {
+    if (!el.waiting) return;
+    el.waiting.classList.toggle('hidden', waitingFor.length === 0);
+    el.waiting.innerHTML = waitingFor.length
+      ? `<span class="spinner"></span>Esperando ${esc(waitingFor.join(', '))} carregar…`
+      : '';
+  }
+
+  function renderControls() {
+    el.lock.textContent = room.hostOnlyControl ? `🔒 Só ${room.hostName} controla` : '';
+    if (el.hostOnly) el.hostOnly.checked = room.hostOnlyControl;
+    root.querySelector('[data-change]').classList.toggle('hidden', !canControl());
+    renderQueue();
+  }
+
+  function showReaction(emoji, name) {
+    const item = document.createElement('div');
+    item.className = 'reaction-float';
+    item.style.left = `${10 + Math.random() * 75}%`;
+    item.innerHTML = `${esc(emoji)}<small>${esc(name)}</small>`;
+    el.wrap.appendChild(item);
+    setTimeout(() => item.remove(), 2700);
+  }
+
+  // ---------- Queue ----------
+  function renderQueue() {
+    if (!el.queue) return;
+    el.queueCount.textContent = queue.length ? `Fila (${queue.length})` : 'Fila';
+    root.querySelector('[data-queue-next]').classList.toggle('hidden', !queue.length || !canControl());
+    el.queue.innerHTML = queue.length
+      ? queue.map((item, i) => `
+          <div class="queue-item">
+            <span style="color:var(--text-sub);width:18px;text-align:right">${i + 1}</span>
+            ${thumb(item.video)}
+            <div class="meta"><div class="title">${esc(item.video.title)}</div><div class="sub">sugerido por ${esc(item.addedByName)}</div></div>
+            ${item.addedById === ctx.user.id || canControl()
+              ? `<button class="icon-btn" data-queue-remove="${item.itemId}" title="Tirar da fila">${icon('close')}</button>` : ''}
+          </div>`).join('')
+      : '<div class="sys" style="padding:24px">A fila está vazia. Adicione vídeos para emendar um no outro.</div>';
+  }
+
+  function pickPlaylist() {
+    return new Promise((resolve) => {
+      let done = false;
+      openModal({
+        title: 'Adicionar playlist à fila',
+        body: '<div class="pick-list" data-list><div class="sys">Carregando…</div></div>',
+        onMount: async (modal, close) => {
+          const list = modal.querySelector('[data-list]');
+          const playlists = await api.playlists.list();
+          list.innerHTML = playlists.length
+            ? playlists.map((p) => `<button class="pick" data-id="${p.id}">${playlistCover(p, 'thumb')}<div><div class="title">${esc(p.name)}</div><div class="sub">${p.itemCount} vídeo(s)</div></div></button>`).join('')
+            : '<div class="sys">Nenhuma playlist ainda.</div>';
+          list.querySelectorAll('[data-id]').forEach((b) => (b.onclick = () => {
+            done = true;
+            resolve(playlists.find((p) => p.id === b.dataset.id));
+            close();
+          }));
+        },
+      });
+      const observer = new MutationObserver(() => {
+        if (!document.querySelector('.modal-backdrop')) { observer.disconnect(); if (!done) resolve(null); }
+      });
+      observer.observe(document.getElementById('modal-root'), { childList: true });
+    });
   }
 
   // ---------- Chat ----------
@@ -312,6 +524,12 @@ export async function render(root, ctx) {
       data-conn="${esc(p.connectionId)}" style="background:${esc(p.avatarColor)}" title="${esc(p.displayName)}">${esc(p.displayName[0]?.toUpperCase())}</span>`;
   }
 
+  function personStatus(p) {
+    if (p.isBuffering) return 'Carregando…';
+    if (p.inVoice) return p.isMuted ? 'Na call • mutado' : 'Na call';
+    return 'Assistindo';
+  }
+
   function renderPeople() {
     if (!el.people) return;
     const list = [...participants.values()].sort((a, b) => Number(b.inVoice) - Number(a.inVoice) || a.displayName.localeCompare(b.displayName));
@@ -320,8 +538,8 @@ export async function render(root, ctx) {
     el.people.innerHTML = list.map((p) => `
       <div class="person">
         ${personAvatar(p)}
-        <div class="name">${esc(p.displayName)}${p.connectionId === myConnectionId ? ' (você)' : ''}
-          <small>${p.inVoice ? (p.isMuted ? 'Na call • mutado' : 'Na call') : 'Assistindo'}</small></div>
+        <div class="name">${esc(p.displayName)}${p.connectionId === myConnectionId ? ' (você)' : ''}${p.userId === room.hostId ? ' 👑' : ''}
+          <small>${personStatus(p)}</small></div>
         ${p.inVoice ? icon(p.isMuted ? 'micOff' : 'mic') : ''}
       </div>`).join('');
     renderVoiceBar();
@@ -397,6 +615,7 @@ export async function render(root, ctx) {
     document.removeEventListener('visibilitychange', onVisibility);
     if (el.bar) el.bar.innerHTML = '';
     sync?.dispose();
+    destroyHls();
     await voice?.leave().catch(() => {});
     el.player?.pause();
     el.player?.removeAttribute('src');
@@ -404,6 +623,20 @@ export async function render(root, ctx) {
     await hub.invoke('LeaveRoom').catch(() => {});
     await hub.stop().catch(() => {});
   };
+}
+
+let hlsJsPromise = null;
+
+/** hls.js is ~400 KB, so it is only downloaded when a room actually needs it. */
+function loadHlsJs() {
+  if (window.Hls) return Promise.resolve(window.Hls);
+  hlsJsPromise ??= new Promise((resolve) => {
+    const script = Object.assign(document.createElement('script'), { src: '/lib/hls/hls.min.js' });
+    script.onload = () => resolve(window.Hls);
+    script.onerror = () => { hlsJsPromise = null; resolve(null); };
+    document.head.appendChild(script);
+  });
+  return hlsJsPromise;
 }
 
 function cleanHubError(err) {

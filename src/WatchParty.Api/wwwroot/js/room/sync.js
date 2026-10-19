@@ -8,9 +8,11 @@ const SOFT_SYNC_THRESHOLD = 0.35;  // seconds off: nudge playbackRate
 const APPLY_SEEK_THRESHOLD = 0.6;  // when applying a remote action
 const DRIFT_CHECK_MS = 4000;
 const SUPPRESS_MS = 900;
+const BUFFERING_REPORT_MS = 2500;   // stuck loading this long -> ask the room to wait
+const LOAD_GRACE_MS = 8000;         // right after (re)loading a video, don't make everyone wait
 
 export class PlaybackSync {
-  constructor(video, hub, { onLocalAction, onAutoplayBlocked, onError }) {
+  constructor(video, hub, { onLocalAction, onAutoplayBlocked, onError, onEnded }) {
     this.video = video;
     this.hub = hub;
     this.state = null;
@@ -21,12 +23,22 @@ export class PlaybackSync {
     this.onLocalAction = onLocalAction;
     this.onAutoplayBlocked = onAutoplayBlocked;
     this.onError = onError;
+    this.onEnded = onEnded;
+    this.bufferingReported = false;
+    this.bufferingTimer = null;
+    this.loadedAt = performance.now();
 
     this.handlers = {
       play: () => this.local('Play'),
       pause: () => { if (!this.video.ended) this.local('Pause'); },
       seeked: () => this.local('Seek'),
       loadedmetadata: () => this.state && this.apply(this.state, { force: true }),
+      ended: () => this.onEnded?.(),
+      waiting: () => this.scheduleBufferingReport(),
+      stalled: () => this.scheduleBufferingReport(),
+      playing: () => this.checkRecovered(),
+      canplay: () => this.checkRecovered(),
+      canplaythrough: () => this.checkRecovered(),
     };
     for (const [event, handler] of Object.entries(this.handlers)) video.addEventListener(event, handler);
 
@@ -102,12 +114,46 @@ export class PlaybackSync {
       this.onLocalAction?.(action, position);
     } catch (err) {
       this.onError?.(err);
+      // The server refused (e.g. only the host controls): put the player back where the room is.
+      if (this.state) setTimeout(() => this.apply(this.state, { force: true }), 0);
     } finally {
       this.pendingLocal--;
     }
   }
 
+  /** Call when a new video starts loading. */
+  videoLoaded() {
+    this.loadedAt = performance.now();
+    clearTimeout(this.bufferingTimer);
+    if (this.bufferingReported) this.reportBuffering(false);
+  }
+
+  scheduleBufferingReport(delay = BUFFERING_REPORT_MS) {
+    clearTimeout(this.bufferingTimer);
+    this.bufferingTimer = setTimeout(() => {
+      const stuck = this.video.readyState < 3 && this.state?.isPlaying && this.state?.videoId;
+      if (!stuck || this.bufferingReported) return;
+      // Still in the grace period after loading: check again when it ends instead of giving up.
+      const sinceLoad = performance.now() - this.loadedAt;
+      if (sinceLoad < LOAD_GRACE_MS) this.scheduleBufferingReport(LOAD_GRACE_MS - sinceLoad + 100);
+      else this.reportBuffering(true);
+    }, delay);
+  }
+
+  checkRecovered() {
+    if (this.video.readyState >= 3) {
+      clearTimeout(this.bufferingTimer);
+      if (this.bufferingReported) this.reportBuffering(false);
+    }
+  }
+
+  reportBuffering(buffering) {
+    this.bufferingReported = buffering;
+    this.hub.invoke('SetBuffering', buffering).catch(() => {});
+  }
+
   async checkDrift() {
+    this.checkRecovered(); // safety net: some browsers skip "canplay" while paused
     if (document.hidden || !this.state?.videoId || this.video.readyState < 2 || this.video.seeking || this.pendingLocal) return;
     const startedAt = performance.now();
     let fresh;
@@ -141,6 +187,7 @@ export class PlaybackSync {
 
   dispose() {
     clearInterval(this.driftTimer);
+    clearTimeout(this.bufferingTimer);
     for (const [event, handler] of Object.entries(this.handlers)) this.video.removeEventListener(event, handler);
   }
 }

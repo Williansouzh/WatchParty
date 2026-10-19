@@ -162,13 +162,19 @@ export async function startRoomForVideo(videoId, title) {
 }
 
 // ---------- Toasts ----------
-export function toast(message, type = '') {
+/** action: { label, href } adds a link (e.g. "Entrar" on a room alert). */
+export function toast(message, type = '', action = null) {
   const root = document.getElementById('toast-root');
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.textContent = message;
+  if (action) {
+    const link = Object.assign(document.createElement('a'), { href: action.href, textContent: action.label, className: 'toast-action' });
+    link.addEventListener('click', () => el.remove());
+    el.appendChild(link);
+  }
   root.appendChild(el);
-  setTimeout(() => el.remove(), 3200);
+  setTimeout(() => el.remove(), action ? 8000 : 3200);
 }
 
 // ---------- Modal ----------
@@ -223,7 +229,7 @@ export function formDialog(title, fields, submitLabel = 'Salvar') {
           <div class="field"><label for="f-${f.name}">${esc(f.label)}</label>
           ${f.type === 'textarea'
             ? `<textarea class="input" id="f-${f.name}" name="${f.name}" maxlength="${f.max ?? 2000}">${esc(f.value ?? '')}</textarea>`
-            : `<input class="input" id="f-${f.name}" name="${f.name}" value="${esc(f.value ?? '')}" maxlength="${f.max ?? 200}" ${f.required ? 'required' : ''} autocomplete="off">`}
+            : `<input class="input" id="f-${f.name}" name="${f.name}" type="${f.type === 'password' ? 'password' : 'text'}" value="${esc(f.value ?? '')}" maxlength="${f.max ?? 200}" ${f.required ? 'required' : ''} autocomplete="${f.type === 'password' ? 'new-password' : 'off'}">`}
           </div>`).join('')}
         <div class="modal-actions"><button type="button" class="btn btn-sm btn-outline" data-close>Cancelar</button><button class="btn btn-sm btn-primary">${esc(submitLabel)}</button></div></form>`,
       onMount: (el, close) => {

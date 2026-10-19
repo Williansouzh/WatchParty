@@ -1,0 +1,14 @@
+{
+  "name": "watchparty-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests: two or three people in the same room (website and Flutter web build).",
+  "scripts": {
+    "test": "node run.mjs",
+    "test:web": "node run.mjs web-sync web-features",
+    "test:flutter": "node run.mjs flutter-web"
+  },
+  "dependencies": {
+    "playwright": "1.48.2"
+  }
+}
