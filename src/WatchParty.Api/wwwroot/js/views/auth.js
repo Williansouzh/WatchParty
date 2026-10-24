@@ -6,7 +6,7 @@ export async function render(root, { mode, onAuthenticated }) {
   root.innerHTML = `
     <div class="auth-wrap">
       <div class="auth-card">
-        <div class="brand" style="justify-content:center"><span class="logo">${icon('play')}</span>WatchParty</div>
+        <div class="brand" style="justify-content:center"><img class="logo" src="/logo.svg" alt="">watchparty</div>
         <h1>${isRegister ? 'Crie sua conta para assistir com a galera' : 'Entrar no WatchParty'}</h1>
         <form novalidate>
           <div class="form-error hidden" data-error></div>

@@ -175,6 +175,13 @@ flutter build apk --release --dart-define=SERVER_URL=https://seu-servidor.com
 ### iPhone
 Precisa de um Mac com Xcode: `cd mobile && flutter build ios`. Para instalar no celular dos amigos sem App Store, use o TestFlight, que exige conta de desenvolvedor Apple (US$ 99/ano). Sem conta paga, dá para instalar só no seu próprio iPhone pelo Xcode, e a instalação vale por 7 dias.
 
+### Logo e ícones
+Os arquivos da marca ficam em [`branding/`](branding/) (SVG do símbolo, ícone, versão para ícone adaptável e uma cor). Para trocar a logo, edite os SVGs e gere de novo todos os PNGs do Android, iOS e web:
+```bash
+CHROMIUM_PATH=/caminho/do/chromium node branding/render-icons.mjs branding mobile src/WatchParty.Api/wwwroot
+```
+O ícone adaptável, o ícone tematizado (Android 13+), o ícone de notificação e a tela de abertura do Android são vetores em `mobile/android/app/src/main/res/drawable/`.
+
 ### Como o app é organizado
 ```
 mobile/lib/

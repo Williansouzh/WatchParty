@@ -9,5 +9,5 @@ rm -rf "$out" && mkdir -p "$out"
 cp -r "$here/../mobile/build/web/." "$out/"
 cp -r "$site/css" "$site/js" "$site/lib" "$out/"
 cp "$site/index.html" "$out/site.html"
-cp "$site/icon.svg" "$site/manifest.webmanifest" "$out/" 2>/dev/null || true
+cp "$site/icon.svg" "$site/icon-maskable.svg" "$site/logo.svg" "$site/apple-touch-icon.png" "$site/manifest.webmanifest" "$out/" 2>/dev/null || true
 echo "web root ready at $out (Flutter at /, site at /site.html)"

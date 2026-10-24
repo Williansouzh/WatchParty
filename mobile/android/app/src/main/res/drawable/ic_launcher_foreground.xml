@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- WatchParty mark: two play buttons, you in front and your friends' echo behind. Source: branding/. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="120" android:viewportHeight="120">
+  <group android:pivotX="60" android:pivotY="60" android:scaleX="0.75" android:scaleY="0.75">
+    <path android:pathData="M31,35 L31,85 L74,60 Z" android:fillColor="#0E7A3A" android:strokeColor="#0E7A3A" android:strokeWidth="10" android:strokeLineJoin="round" />
+    <path android:pathData="M46,35 L46,85 L89,60 Z" android:fillColor="#000000" android:strokeColor="#000000" android:strokeWidth="10" android:strokeLineJoin="round" />
+  </group>
+</vector>

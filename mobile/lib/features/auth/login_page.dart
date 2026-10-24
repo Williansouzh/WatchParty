@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/app_scope.dart';
 import '../../core/theme.dart';
+import '../../widgets/brand.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -88,7 +89,7 @@ class _LoginPageState extends State<LoginPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const _Logo(),
+                      const Center(child: BrandLogo()),
                       const SizedBox(height: 24),
                       Text(
                         _register ? 'Crie sua conta para assistir com a galera' : 'Entrar no WatchParty',
@@ -178,27 +179,6 @@ class _LoginPageState extends State<LoginPage> {
         onFieldSubmitted: (_) => obscure ? _submit() : null,
         decoration: InputDecoration(labelText: label, hintText: hint),
       ),
-    );
-  }
-}
-
-class _Logo extends StatelessWidget {
-  const _Logo();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(10)),
-          child: const Icon(Icons.play_arrow_rounded, color: Colors.black, size: 30),
-        ),
-        const SizedBox(width: 10),
-        const Text('WatchParty', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
-      ],
     );
   }
 }

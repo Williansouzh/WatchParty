@@ -97,7 +97,7 @@ function ensureShell() {
     <div class="layout">
       <aside class="sidebar">
         <nav class="panel nav">
-          <a class="brand" href="#/"><span class="logo">${icon('play')}</span>WatchParty</a>
+          <a class="brand" href="#/"><img class="logo" src="/logo.svg" alt="">watchparty</a>
           <a href="#/" data-nav="home">${icon('home')}Início</a>
           <a href="#/search" data-nav="search">${icon('search')}Buscar</a>
           <a href="#/rooms" data-nav="rooms">${icon('live')}Salas</a>

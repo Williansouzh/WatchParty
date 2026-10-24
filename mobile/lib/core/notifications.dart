@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show Color;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 /// System notifications ("Ana começou a assistir…"). Tapping one opens the room.
@@ -54,6 +55,8 @@ class Notifications {
           channelDescription: 'Quando seus amigos criam uma sala ou começam a assistir',
           importance: Importance.high,
           priority: Priority.high,
+          icon: 'ic_stat_notify',
+          color: Color(0xFF1ED760),
         ),
         iOS: DarwinNotificationDetails(),
       ),
