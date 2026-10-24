@@ -99,8 +99,14 @@ export class PlaybackSync {
   }
 
   async local(action) {
-    if (performance.now() < this.suppressUntil || !this.state?.videoId) return;
+    if (!this.state?.videoId) return;
     const position = this.video.currentTime;
+    // Right after we moved the player ourselves, its events are echoes of the room state. Only a play/pause
+    // that goes against that state can be the person's own action (e.g. pressing play just as the video loads).
+    if (performance.now() < this.suppressUntil) {
+      const against = (action === 'Play' && !this.state.isPlaying) || (action === 'Pause' && this.state.isPlaying);
+      if (!against) return;
+    }
 
     // Ignore echoes of a state we already have (e.g. "play" fired while the room is already playing).
     if (action === 'Play' && this.state.isPlaying && Math.abs(this.expectedPosition() - position) < APPLY_SEEK_THRESHOLD) return;
