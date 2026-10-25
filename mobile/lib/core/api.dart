@@ -32,11 +32,19 @@ class Api {
   ));
 
   Future<T> _call<T>(Future<Response<dynamic>> Function() request, T Function(dynamic data) parse) async {
+    Response<dynamic>? response;
     try {
-      final response = await request();
+      response = await request();
       return parse(response.data);
     } on DioException catch (e) {
       throw _toApiException(e);
+    } on TypeError catch (e) {
+      // A 2xx answer that isn't our JSON (e.g. an HTML page): usually a wrong server address.
+      final body = response?.data.toString() ?? '';
+      // ignore: avoid_print
+      print('WatchParty: unexpected response from ${response?.realUri} (${response?.statusCode}): $e\n'
+          '${body.length > 300 ? body.substring(0, 300) : body}');
+      throw const ApiException('Resposta inesperada do servidor. Confira o endereço.');
     }
   }
 

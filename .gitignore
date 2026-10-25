@@ -10,3 +10,6 @@ src/WatchParty.Api/data/
 
 # Chave de assinatura do APK (guarde fora do repositório)
 WatchParty-chave-assinatura.zip
+
+# Segredos de produção (ex.: WATCHPARTY_INVITE_CODE)
+.env

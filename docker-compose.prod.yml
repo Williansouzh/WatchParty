@@ -1,0 +1,21 @@
+# Produção na VPS: atrás do Caddy de borda (economize-caddy) pela rede 'edge'; sem portas expostas.
+services:
+  watchparty:
+    build: .
+    image: watchparty:prod
+    container_name: watchparty
+    restart: unless-stopped
+    environment:
+      Auth__InviteCode: ${WATCHPARTY_INVITE_CODE:?defina WATCHPARTY_INVITE_CODE no .env}
+      MobileApp__ApkPath: /data/app/WatchParty.apk
+      Backup__Directory: /data/backups
+      MobileApp__LatestBuild: "4"
+      MobileApp__LatestVersion: "0.3.1"
+    volumes:
+      - ./data:/data
+    networks:
+      - edge
+
+networks:
+  edge:
+    external: true
